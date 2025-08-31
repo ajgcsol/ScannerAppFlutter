@@ -81,7 +81,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               style: TextStyle(fontWeight: FontWeight.w500),
             ),
             Text(
-              'github.com/ajgcsol/ScannerAppReady',
+              'github.com/ajgcsol/ScannerAppFlutter',
               style: TextStyle(color: Colors.blue, fontSize: 12),
             ),
           ],

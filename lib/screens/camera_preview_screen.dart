@@ -370,8 +370,7 @@ class ScanningOverlayPainter extends CustomPainter {
       ..strokeWidth = 3;
 
     final cornerPaint = Paint()
-      ..color =
-          Theme.of(NavigationService.navigatorKey.currentContext!).primaryColor
+      ..color = const Color(0xFF1976D2) // Charleston Law blue
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4;
 

@@ -1,0 +1,80 @@
+name: insession_flutter
+description: "InSession - Charleston Law Event Scanner (Flutter iOS Port)"
+publish_to: 'none' # Private package
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI & Material Design
+  cupertino_icons: ^1.0.8
+  material_color_utilities: ^0.11.1
+  
+  # State Management
+  provider: ^6.1.2
+  riverpod: ^2.4.9
+  flutter_riverpod: ^2.4.9
+  
+  # Firebase Integration (Core only for now)
+  firebase_core: ^2.24.2
+  cloud_firestore: ^4.13.6
+  # firebase_auth: ^4.15.3  # Temporarily disabled due to web compatibility
+  # firebase_storage: ^11.5.6  # Temporarily disabled
+  # firebase_analytics: ^10.7.4  # Temporarily disabled
+  # firebase_crashlytics: ^3.4.8  # Temporarily disabled
+  
+  # Camera & Barcode Scanning
+  camera: ^0.10.5+9
+  mobile_scanner: ^3.5.6
+  
+  # Local Database
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  
+  # HTTP & Networking
+  http: ^1.1.2
+  connectivity_plus: ^5.0.2
+  
+  # File Operations & Export
+  path_provider: ^2.1.2
+  share_plus: ^7.2.2
+  csv: ^5.1.1
+  excel: ^4.0.2
+  
+  # Permissions
+  permission_handler: ^11.2.0
+  
+  # Device Info
+  device_info_plus: ^9.1.2
+  package_info_plus: ^4.2.0
+  
+  # Date & Time
+  intl: ^0.19.0
+  
+  # JSON Serialization
+  json_annotation: ^4.8.1
+  
+  # Utilities
+  uuid: ^4.2.2
+  collection: ^1.18.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  
+  # Code Generation
+  build_runner: ^2.4.7
+  json_serializable: ^6.7.1
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
+    - assets/icons/

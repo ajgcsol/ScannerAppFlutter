@@ -31,6 +31,7 @@ dependencies:
   # Camera & Barcode Scanning
   camera: ^0.10.5+9
   mobile_scanner: ^3.5.6
+  flutter_barcode_scanner: ^2.0.0  # Keep for web fallback
   
   # Local Database
   sqflite: ^2.3.0
@@ -62,6 +63,9 @@ dependencies:
   # Utilities
   uuid: ^4.2.2
   collection: ^1.18.0
+
+dependency_overrides:
+  flutter_plugin_android_lifecycle: 2.0.19
 
 dev_dependencies:
   flutter_test:

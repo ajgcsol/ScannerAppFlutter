@@ -252,21 +252,6 @@ class FirebaseService {
     }
   }
 
-  Stream<List<Event>> getEvents() {
-    if (!isAvailable) {
-      return Stream.value([]);
-    }
-
-    return _firestore!
-        .collection('events')
-        .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) {
-              final data = doc.data();
-              // Convert Firestore Timestamps to ISO8601 strings for JSON parsing
-              final convertedData = _convertFirestoreTimestamps(data);
-              return Event.fromJson(convertedData);
-            }).toList());
-  }
 
   // Students
   Future<void> addStudent(Student student) async {
@@ -286,26 +271,6 @@ class FirebaseService {
     }
   }
 
-  Future<Student?> getStudent(String studentId) async {
-    if (!isAvailable) {
-      debugPrint('Firebase not available, cannot fetch student');
-      return null;
-    }
-
-    try {
-      final doc = await _firestore!.collection('students').doc(studentId).get();
-
-      if (doc.exists) {
-        final data = doc.data()!;
-        final convertedData = _convertFirestoreTimestamps(data);
-        return Student.fromJson(convertedData);
-      }
-      return null;
-    } catch (e) {
-      debugPrint('Failed to fetch student: $e');
-      return null;
-    }
-  }
 
   Future<List<Student>> searchStudents(String query) async {
     if (!isAvailable) {
@@ -530,6 +495,78 @@ class FirebaseService {
       'uploadedAt',
     };
     return timestampFields.contains(fieldName);
+  }
+
+  // Events - Load from Firestore
+  Future<List<Event>> getEvents() async {
+    if (!isAvailable) return [];
+
+    try {
+      final QuerySnapshot snapshot = await _firestore!
+          .collection('events')
+          .orderBy('eventNumber', descending: false)
+          .get();
+
+      final List<Event> events = [];
+      for (final doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        
+        try {
+          final event = Event(
+            id: doc.id,
+            eventNumber: data['eventNumber'] as int? ?? 0,
+            name: data['name'] as String? ?? 'Unnamed Event',
+            description: data['description'] as String? ?? '',
+            location: data['location'] as String? ?? '',
+            date: data['date'] != null 
+                ? (data['date'] as Timestamp).toDate()
+                : DateTime.now(),
+            createdAt: data['createdAt'] != null
+                ? (data['createdAt'] as Timestamp).toDate()
+                : DateTime.now(),
+            isActive: data['isActive'] as bool? ?? true,
+            isCompleted: data['isCompleted'] as bool? ?? false,
+          );
+          events.add(event);
+        } catch (e) {
+          debugPrint('Error parsing event ${doc.id}: $e');
+        }
+      }
+
+      debugPrint('✅ Loaded ${events.length} events from Firestore');
+      return events;
+    } catch (e) {
+      debugPrint('❌ Error loading events from Firestore: $e');
+      return [];
+    }
+  }
+
+  // Students - Load from Firestore
+  Future<Student?> getStudent(String studentId) async {
+    if (!isAvailable) return null;
+
+    try {
+      final DocumentSnapshot doc = await _firestore!
+          .collection('students')
+          .doc(studentId)
+          .get();
+
+      if (!doc.exists) return null;
+
+      final data = doc.data() as Map<String, dynamic>;
+      return Student(
+        studentId: doc.id,
+        firstName: data['firstName'] as String? ?? data['first_name'] as String? ?? 'Unknown',
+        lastName: data['lastName'] as String? ?? data['last_name'] as String? ?? 'Student',
+        email: data['email'] as String? ?? '',
+        program: data['program'] as String? ?? '',
+        year: data['year'] as String? ?? '',
+        active: data['active'] as bool? ?? data['isActive'] as bool? ?? true,
+      );
+    } catch (e) {
+      debugPrint('❌ Error loading student $studentId: $e');
+      return null;
+    }
   }
 
   // Helper method to convert lists that might contain Firestore Timestamps

@@ -20,7 +20,8 @@
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="Charleston Law Event Scanner - Student Check-in System">
 
-  <!-- iOS meta tags & icons -->
+  <!-- Mobile web app meta tags -->
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="Charleston Law Scanner">
@@ -32,6 +33,125 @@
 
   <title>Charleston Law Event Scanner</title>
   <link rel="manifest" href="manifest.json">
+  
+  <!-- Add ZXing library for barcode scanning on web -->
+  <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
+  
+  <!-- Web camera autofocus optimization and barcode decoder -->
+  <script>
+    // Global barcode scanner instance
+    let codeReader = null;
+    
+    // Initialize ZXing code reader
+    function initializeBarcodeReader() {
+      try {
+        // Create a multi-format reader for all barcode types
+        codeReader = new ZXing.BrowserMultiFormatReader();
+        console.log('✅ ZXing BarcodeReader initialized successfully');
+        return true;
+      } catch (e) {
+        console.error('❌ Failed to initialize ZXing reader:', e);
+        return false;
+      }
+    }
+
+    // Enhanced barcode detection for mobile_scanner web support
+    function enhanceBarcodeDetection() {
+      // Override the mobile_scanner's detection method if possible
+      if (window.mobileScanner) {
+        const originalScan = window.mobileScanner.scan;
+        window.mobileScanner.scan = function(imageData) {
+          console.log('📱 Mobile scanner enhanced detection triggered');
+          
+          if (!codeReader && !initializeBarcodeReader()) {
+            return originalScan ? originalScan.call(this, imageData) : null;
+          }
+
+          try {
+            // Create a canvas for ZXing
+            const canvas = document.createElement('canvas');
+            canvas.width = imageData.width;
+            canvas.height = imageData.height;
+            const ctx = canvas.getContext('2d');
+            ctx.putImageData(imageData, 0, 0);
+
+            // Try ZXing decoding
+            const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+            const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+            const result = codeReader.decode(binaryBitmap);
+            
+            if (result && result.getText()) {
+              console.log('🔥 Enhanced barcode detection success:', result.getText());
+              return { barcodes: [{ rawValue: result.getText(), format: result.getBarcodeFormat() }] };
+            }
+          } catch (e) {
+            // Fall back to original method
+          }
+          
+          return originalScan ? originalScan.call(this, imageData) : null;
+        };
+      }
+    }
+
+    // Fallback decode function for direct calls
+    function decodeBarcode(imageData, callback) {
+      if (!codeReader) {
+        if (!initializeBarcodeReader()) {
+          return;
+        }
+      }
+
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = imageData.width;
+        canvas.height = imageData.height;
+        const ctx = canvas.getContext('2d');
+        ctx.putImageData(imageData, 0, 0);
+
+        const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+        const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+        const result = codeReader.decode(binaryBitmap);
+        
+        if (result && result.getText()) {
+          console.log('🔥 Barcode decoded successfully:', result.getText());
+          if (callback) callback(result.getText());
+        }
+      } catch (e) {
+        // Silent fail - no barcode found
+      }
+    }
+
+    // Override getUserMedia to request autofocus (conservative approach)
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      
+      navigator.mediaDevices.getUserMedia = function(constraints) {
+        if (constraints.video && typeof constraints.video === 'object') {
+          try {
+            // Only add autofocus if not already specified
+            if (!constraints.video.focusMode) {
+              constraints.video.focusMode = 'continuous';
+            }
+            
+            console.log('Camera constraints applied:', constraints.video);
+          } catch (e) {
+            console.log('Camera constraint enhancement skipped:', e);
+          }
+        }
+        return originalGetUserMedia(constraints);
+      };
+    }
+
+    // Initialize when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+      initializeBarcodeReader();
+      
+      // Try to enhance mobile_scanner after a delay
+      setTimeout(() => {
+        enhanceBarcodeDetection();
+      }, 2000);
+    });
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

@@ -15,92 +15,116 @@ class DuplicateScanDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      child: Card(
-        child: Container(
-          width: double.maxFinite,
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Warning icon
-              Icon(
-                Icons.warning,
-                size: 48,
-                color: Theme.of(context).colorScheme.error,
+    return AlertDialog(
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(16)),
+      ),
+      backgroundColor: Colors.white,
+      title: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: const BoxDecoration(
+              color: Colors.orange,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.warning,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Text(
+            'Duplicate Scan',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.orange,
+            ),
+          ),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (student != null) ...[
+              Card(
+                color: Colors.orange.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        student!.fullName,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'ID: ${student!.studentId}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      if (student!.email.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          student!.email,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-
               const SizedBox(height: 16),
-
-              // Title
-              Text(
-                'Duplicate Scan Detected',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            ] else ...[
+              Card(
+                color: Colors.orange.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    'Student ID: $studentId',
+                    style: const TextStyle(
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
-                textAlign: TextAlign.center,
+                  ),
+                ),
               ),
-
               const SizedBox(height: 16),
-
-              // Student info
-              if (student != null) ...[
-                Text(
-                  '${student!.firstName} ${student!.lastName}',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                  textAlign: TextAlign.center,
-                ),
-                Text(
-                  'ID: $studentId',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                  textAlign: TextAlign.center,
-                ),
-              ] else ...[
-                Text(
-                  'Student ID: $studentId',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                  textAlign: TextAlign.center,
-                ),
-                Text(
-                  '(Student not found)',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-
-              const SizedBox(height: 16),
-
-              // Message
-              Text(
-                'This student has already been scanned for the current event.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                textAlign: TextAlign.center,
-              ),
-
-              const SizedBox(height: 24),
-
-              // OK button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: onDismiss,
-                  child: const Text('OK'),
-                ),
-              ),
             ],
-          ),
+            const Text(
+              'This student has already been scanned for this event.',
+              style: TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'The duplicate scan has been logged for tracking purposes.',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+              ),
+            ),
+          ],
         ),
       ),
+      actions: [
+        TextButton(
+          onPressed: onDismiss,
+          child: const Text('OK'),
+        ),
+      ],
     );
   }
 }

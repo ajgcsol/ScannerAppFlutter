@@ -7,12 +7,12 @@ import 'services/firebase_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase for all platforms
+  // Initialize Firebase Functions service (HTTP-based)
   try {
     await FirebaseService.instance.initialize();
-    debugPrint('Firebase initialized successfully');
+    debugPrint('Firebase Functions service initialized successfully');
   } catch (e) {
-    debugPrint('Firebase initialization failed: $e');
+    debugPrint('Firebase Functions initialization failed: $e');
     // Continue without Firebase for offline-only mode
   }
 

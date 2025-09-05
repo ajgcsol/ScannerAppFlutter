@@ -1,0 +1,77 @@
+name: InSession CI/CD
+description: Build and deploy InSession Flutter app for iOS
+
+trigger:
+  branches:
+    include:
+      - ios-ui-improvements
+      - main
+  
+  pull_requests:
+    branches:
+      - main
+
+steps:
+  - name: Build iOS App
+    platform: macos-ventura
+    xcode_version: 15.2
+    
+    environment_variables:
+      - name: FLUTTER_ROOT
+        value: /usr/local/flutter
+    
+    pre_actions:
+      - name: Install Flutter
+        script: |
+          # Install Flutter
+          git clone https://github.com/flutter/flutter.git -b stable /usr/local/flutter
+          export PATH="/usr/local/flutter/bin:$PATH"
+          flutter doctor
+          flutter precache --ios
+          
+      - name: Install Dependencies
+        script: |
+          export PATH="/usr/local/flutter/bin:$PATH"
+          flutter pub get
+          cd ios && pod install --clean-install && cd ..
+    
+    actions:
+      - name: Flutter Build
+        script: |
+          export PATH="/usr/local/flutter/bin:$PATH"
+          flutter build ios --release --no-codesign
+          
+      - name: Archive App
+        script: |
+          xcodebuild -workspace ios/Runner.xcworkspace \
+                     -scheme Runner \
+                     -configuration Release \
+                     -destination generic/platform=iOS \
+                     -archivePath build/ios/archive/Runner.xcarchive \
+                     archive
+    
+    post_actions:
+      - name: Export IPA
+        script: |
+          xcodebuild -exportArchive \
+                     -archivePath build/ios/archive/Runner.xcarchive \
+                     -exportPath build/ios/ipa \
+                     -exportOptionsPlist ios/ExportOptions.plist
+                     
+      - name: Upload to TestFlight
+        script: |
+          xcrun altool --upload-app \
+                       --type ios \
+                       --file build/ios/ipa/InSession.ipa \
+                       --username "$APP_STORE_CONNECT_USERNAME" \
+                       --password "$APP_STORE_CONNECT_PASSWORD"
+
+artifacts:
+  - path: build/ios/ipa/*.ipa
+    name: InSession iOS App
+  - path: build/ios/archive/Runner.xcarchive
+    name: iOS Archive
+
+test_plans:
+  - name: Unit Tests
+    target: RunnerTests

@@ -29,7 +29,16 @@ class ScanRecord {
   });
 
   factory ScanRecord.fromJson(Map<String, dynamic> json) => _$ScanRecordFromJson(json);
-  Map<String, dynamic> toJson() => _$ScanRecordToJson(this);
+  
+  Map<String, dynamic> toJson() {
+    final json = _$ScanRecordToJson(this);
+    // Map eventId to listId for Firestore compatibility
+    if (json.containsKey('eventId')) {
+      json['listId'] = json['eventId'];
+      json.remove('eventId');
+    }
+    return json;
+  }
 
   factory ScanRecord.create({
     required String code,

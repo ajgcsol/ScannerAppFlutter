@@ -4,12 +4,12 @@ import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 class CameraPreviewScreen extends StatefulWidget {
-  final Function(String) onBarcodeScanned;
+  final Function(String) onScan;
   final VoidCallback? onClose;
 
   const CameraPreviewScreen({
     super.key,
-    required this.onBarcodeScanned,
+    required this.onScan,
     this.onClose,
   });
 
@@ -56,7 +56,7 @@ class _CameraPreviewScreenState extends State<CameraPreviewScreen> {
         });
         
         // Call the callback with the scanned code
-        widget.onBarcodeScanned(code);
+        widget.onScan(code);
         
         // Close this screen
         if (mounted) {

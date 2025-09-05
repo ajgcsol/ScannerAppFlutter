@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/event.dart';
@@ -19,7 +20,7 @@ class ScannerState {
   final bool showForgotIdDialog;
   final bool showEventSelector;
   final bool showCameraPreview;
-  final bool isLoading; // Added loading state
+  final bool isLoading;
 
   const ScannerState({
     this.currentEvent,
@@ -33,8 +34,15 @@ class ScannerState {
     this.showForgotIdDialog = false,
     this.showEventSelector = false,
     this.showCameraPreview = false,
-    this.isLoading = false, // Default to false
+    this.isLoading = false,
   });
+
+  // Computed properties for tab functionality
+  int get scanCount => scans.length;
+  int get uniqueStudentCount => scans.map((s) => s.studentId).toSet().length;
+  int get duplicateScanCount => scanCount - uniqueStudentCount;
+  int get manualCheckInCount => 0; // TODO: Track manual check-ins separately
+  int get errorCount => 0; // TODO: Track errors separately
 
   ScannerState copyWith({
     Event? currentEvent,
@@ -48,7 +56,7 @@ class ScannerState {
     bool? showForgotIdDialog,
     bool? showEventSelector,
     bool? showCameraPreview,
-    bool? isLoading, // Add to copyWith
+    bool? isLoading,
   }) {
     return ScannerState(
       currentEvent: currentEvent ?? this.currentEvent,
@@ -62,7 +70,7 @@ class ScannerState {
       showForgotIdDialog: showForgotIdDialog ?? this.showForgotIdDialog,
       showEventSelector: showEventSelector ?? this.showEventSelector,
       showCameraPreview: showCameraPreview ?? this.showCameraPreview,
-      isLoading: isLoading ?? this.isLoading, // Add to copyWith
+      isLoading: isLoading ?? this.isLoading,
     );
   }
 }
@@ -70,31 +78,54 @@ class ScannerState {
 // Scanner Notifier
 class ScannerNotifier extends StateNotifier<ScannerState> {
   final ScannerService _scannerService;
+  Timer? _refreshTimer;
 
   ScannerNotifier(this._scannerService) : super(const ScannerState(isLoading: true)) {
     _initialize();
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _initialize() async {
     await _loadEvents();
     if (state.currentEvent != null) {
       await _loadScansForCurrentEvent();
+      _startPeriodicRefresh();
     }
     state = state.copyWith(isLoading: false);
   }
 
+  void _startPeriodicRefresh() {
+    _refreshTimer?.cancel();
+    // Refresh scan data every 30 seconds
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _loadScansForCurrentEvent();
+    });
+  }
+
   Future<void> _loadEvents() async {
+    debugPrint('📱 _loadEvents() called');
     final events = await _scannerService.getEvents();
+    debugPrint('📱 Loaded ${events.length} events');
     if (events.isNotEmpty) {
+      debugPrint('📱 Setting current event to: ${events.first.name} (id: ${events.first.id})');
       state = state.copyWith(availableEvents: events, currentEvent: events.first);
     } else {
+      debugPrint('📱 No events found, setting empty list');
       state = state.copyWith(availableEvents: []);
     }
   }
 
   Future<void> _loadScansForCurrentEvent() async {
     if (state.currentEvent == null) return;
-    final scans = await _scannerService.getScansForEvent(state.currentEvent!.id);
+    final scans = await _scannerService.getScansForEvent(
+      state.currentEvent!.id,
+      eventNumber: state.currentEvent!.eventNumber,
+    );
     state = state.copyWith(scans: scans);
   }
 
@@ -124,10 +155,14 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         studentName: student.fullName,
         studentEmail: student.email,
       );
-      await _scannerService.recordScan(state.currentEvent!.id, newScan);
-      final updatedScans = [newScan, ...state.scans];
+      await _scannerService.recordScan(
+        state.currentEvent!.id, 
+        newScan,
+        eventNumber: state.currentEvent!.eventNumber,
+      );
+      // Refresh scan data immediately to show the new scan
+      await _loadScansForCurrentEvent();
       state = state.copyWith(
-        scans: updatedScans,
         verifiedStudent: student,
         showStudentDialog: true,
       );
@@ -161,9 +196,29 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     state = state.copyWith(showDuplicateDialog: false, verifiedStudent: null);
   }
 
+  Future<void> addManualScan(Student student) async {
+    if (state.currentEvent == null) return;
+
+    final newScan = Scan(
+      studentId: student.studentId,
+      timestamp: DateTime.now(),
+      studentName: student.fullName,
+      studentEmail: student.email,
+    );
+
+    await _scannerService.recordScan(
+      state.currentEvent!.id, 
+      newScan,
+      eventNumber: state.currentEvent!.eventNumber,
+    );
+    // Refresh scan data immediately to show the new scan
+    await _loadScansForCurrentEvent();
+  }
+
   Future<void> selectEvent(Event event) async {
     state = state.copyWith(isLoading: true, currentEvent: event, showEventSelector: false, scans: []);
     await _loadScansForCurrentEvent();
+    _startPeriodicRefresh(); // Restart refresh timer for new event
     state = state.copyWith(isLoading: false);
   }
 }

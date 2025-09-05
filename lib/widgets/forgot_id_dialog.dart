@@ -77,22 +77,26 @@ class _ForgotIdDialogState extends ConsumerState<ForgotIdDialog> {
   }
 
   void _selectStudent(Student student) async {
+    debugPrint('Selecting student: ${student.studentId} - ${student.firstName} ${student.lastName}');
+    
+    // Close dialog first
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+    
+    // Call onDismiss to reset dialog state
+    widget.onDismiss();
+    
+    // Add a small delay before adding the scan
+    await Future.delayed(const Duration(milliseconds: 100));
+    
     try {
       final scannerNotifier = ref.read(scannerProvider.notifier);
-      
-      // Call onDismiss first to clear dialog flag in provider
-      widget.onDismiss();
-      
-      // Close dialog 
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-      
-      // Add manual scan for the selected student
       await scannerNotifier.addManualScan(student);
       
-      // Show success message after a short delay
-      await Future.delayed(const Duration(milliseconds: 200));
+      debugPrint('Successfully added manual scan for ${student.studentId}');
+      
+      // Show success message
       if (mounted && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -102,12 +106,14 @@ class _ForgotIdDialogState extends ConsumerState<ForgotIdDialog> {
           ),
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('Error selecting student: $e');
+      debugPrint('Stack trace: $stackTrace');
+      
       if (mounted && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: Could not add student'),
+            content: const Text('Error: Could not add student'),
             backgroundColor: Colors.red,
           ),
         );

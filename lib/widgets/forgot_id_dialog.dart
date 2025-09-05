@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/student.dart';
 import '../services/scanner_service.dart';
@@ -76,12 +77,42 @@ class _ForgotIdDialogState extends ConsumerState<ForgotIdDialog> {
   }
 
   void _selectStudent(Student student) async {
-    final scannerNotifier = ref.read(scannerProvider.notifier);
-    Navigator.of(context).pop();
-    widget.onDismiss();
-    
-    // Add manual scan for the selected student
-    await scannerNotifier.addManualScan(student);
+    try {
+      final scannerNotifier = ref.read(scannerProvider.notifier);
+      
+      // Call onDismiss first to clear dialog flag in provider
+      widget.onDismiss();
+      
+      // Close dialog 
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+      
+      // Add manual scan for the selected student
+      await scannerNotifier.addManualScan(student);
+      
+      // Show success message after a short delay
+      await Future.delayed(const Duration(milliseconds: 200));
+      if (mounted && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Added ${student.firstName} ${student.lastName}'),
+            duration: const Duration(seconds: 2),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error selecting student: $e');
+      if (mounted && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: Could not add student'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -192,9 +223,15 @@ class _ForgotIdDialogState extends ConsumerState<ForgotIdDialog> {
                                   children: [
                                     Text('ID: ${student.studentId}'),
                                     if (student.email.isNotEmpty)
-                                      Text('Email: ${student.email}'),
+                                      Text(
+                                        student.email,
+                                        style: const TextStyle(fontSize: 12),
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 1,
+                                      ),
                                   ],
                                 ),
+                                isThreeLine: student.email.isNotEmpty,
                                 trailing: const Icon(Icons.arrow_forward_ios),
                                 onTap: () => _selectStudent(student),
                               ),

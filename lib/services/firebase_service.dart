@@ -92,9 +92,9 @@ class FirebaseService {
       final queryId = eventNumber?.toString() ?? eventId;
       debugPrint('🔍 getScanRecordsOnce called with eventId: $eventId, eventNumber: $eventNumber, using queryId: $queryId');
       
-      // Use eventNumber parameter which matches the semantic meaning better
+      // Use eventId parameter as expected by Firebase Function  
       final response = await _dio.get('/getScanRecords', 
-        queryParameters: {'eventNumber': queryId});
+        queryParameters: {'eventId': queryId});
       
       if (response.statusCode == 200) {
         final List<dynamic> data = response.data;

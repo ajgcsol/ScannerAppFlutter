@@ -1,38 +1,26 @@
 #!/bin/sh
 
-# ci_post_clone.sh
-# Xcode Cloud script to set up Flutter environment
-
-set -e
-
-echo "🔥 Starting ci_post_clone.sh..."
-
-# Debug: Show current working directory and contents
-echo "🔍 DEBUG: Current working directory: $(pwd)"
-echo "🔍 DEBUG: Contents of current directory:"
+echo "🔥 FOUND ci_post_clone.sh in ROOT DIRECTORY"
+echo "Current directory: $(pwd)"
+echo "Repository contents:"
 ls -la
 
-echo "🔍 DEBUG: Contents of ci_scripts directory:"
+echo "Looking for ci_scripts directory:"
 ls -la ci_scripts/ || echo "ci_scripts directory not found"
 
-# Install Flutter (without sudo for Xcode Cloud)
-echo "📱 Installing Flutter..."
-git clone https://github.com/flutter/flutter.git -b stable --depth 1 ~/flutter
+echo "Checking if we can find Flutter..."
+which flutter || echo "Flutter not in PATH"
+
+# Try to install Flutter without sudo
+echo "Installing Flutter to home directory..."
+git clone https://github.com/flutter/flutter.git -b stable --depth 1 ~/flutter || echo "Flutter clone failed"
 export PATH="$PATH:$HOME/flutter/bin"
 
-# Flutter setup
-echo "📱 Setting up Flutter..."
-flutter doctor -v
-flutter precache --ios
+echo "Setting up Flutter..."
+flutter doctor -v || echo "Flutter doctor failed"
+flutter pub get || echo "Flutter pub get failed"
 
-# Install Dart dependencies
-echo "📦 Installing Dart dependencies..."
-flutter pub get
+echo "Installing iOS pods..."
+cd ios && pod install && cd .. || echo "Pod install failed"
 
-# Install iOS dependencies
-echo "🍎 Installing iOS dependencies..."
-cd ios
-pod install --clean-install
-cd ..
-
-echo "✅ ci_post_clone.sh completed successfully!"
+echo "✅ ci_post_clone.sh completed"

@@ -25,12 +25,12 @@ flutter precache --ios
 
 # Install Dart dependencies
 echo "📦 Installing Dart dependencies..."
-timeout 300 flutter pub get || { echo "❌ pub get timed out"; exit 1; }
+flutter pub get || { echo "❌ flutter pub get failed"; exit 1; }
 
-# Install iOS dependencies with timeout
+# Install iOS dependencies
 echo "🍎 Installing iOS dependencies..."
 cd ios
-timeout 600 pod install --repo-update || { echo "❌ pod install timed out"; exit 1; }
+pod install --repo-update || { echo "❌ pod install failed"; exit 1; }
 cd ..
 
 echo "✅ ci_post_clone.sh completed successfully!"

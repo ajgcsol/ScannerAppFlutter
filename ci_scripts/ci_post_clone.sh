@@ -7,6 +7,8 @@ set -e
 
 echo "🔥 Starting ci_post_clone.sh..."
 
+# We're already in project root when script runs from ci_scripts/
+
 # Install Flutter
 echo "📱 Installing Flutter..."
 sudo git clone https://github.com/flutter/flutter.git -b stable --depth 1 /usr/local/flutter

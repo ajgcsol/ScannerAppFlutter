@@ -64,22 +64,27 @@ class FirebaseService {
 
   // Scan Records Operations
   Future<void> addScanRecord(ScanRecord scanRecord) async {
+    debugPrint('🔥 ADD_SCAN: addScanRecord called for ${scanRecord.id}');
     if (!isAvailable) {
-      debugPrint('Firebase Functions not available, scan record not synced');
+      debugPrint('🔥 ADD_SCAN: Firebase Functions not available, scan record not synced');
       return;
     }
 
     try {
+      debugPrint('🔥 ADD_SCAN: Making POST request to /addScanRecord...');
       final response = await _dio.post('/addScanRecord', 
         data: scanRecord.toJson());
       
+      debugPrint('🔥 ADD_SCAN: Response received - status: ${response.statusCode}');
       if (response.statusCode == 200) {
-        debugPrint('Scan record synced via Firebase Functions: ${scanRecord.id}');
+        debugPrint('🔥 ADD_SCAN: Scan record synced via Firebase Functions: ${scanRecord.id}');
       } else {
-        debugPrint('Failed to sync scan record: ${response.statusCode}');
+        debugPrint('🔥 ADD_SCAN: Failed to sync scan record: ${response.statusCode}');
       }
-    } catch (e) {
-      debugPrint('Failed to sync scan record via Functions: $e');
+    } catch (e, stackTrace) {
+      debugPrint('🔥 ADD_SCAN: Exception in addScanRecord: $e');
+      debugPrint('🔥 ADD_SCAN: Stack trace: $stackTrace');
+      // Don't rethrow - handle silently to prevent app crashes
     }
   }
 

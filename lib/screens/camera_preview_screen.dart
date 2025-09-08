@@ -58,10 +58,7 @@ class _CameraPreviewScreenState extends State<CameraPreviewScreen> {
         // Call the callback with the scanned code
         widget.onScan(code);
         
-        // Close this screen
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
+        // Let the parent handle navigation - don't pop here
       }
     }
   }

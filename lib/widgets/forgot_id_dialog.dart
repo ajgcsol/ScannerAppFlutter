@@ -77,46 +77,40 @@ class _ForgotIdDialogState extends ConsumerState<ForgotIdDialog> {
   }
 
   void _selectStudent(Student student) async {
-    debugPrint('Selecting student: ${student.studentId} - ${student.firstName} ${student.lastName}');
-    
-    // Close dialog first
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
-    
-    // Call onDismiss to reset dialog state
-    widget.onDismiss();
-    
-    // Add a small delay before adding the scan
-    await Future.delayed(const Duration(milliseconds: 100));
+    debugPrint('🔍 FORGOT_ID: _selectStudent called for ${student.studentId} - ${student.firstName} ${student.lastName}');
     
     try {
+      debugPrint('🔍 FORGOT_ID: Getting scanner notifier...');
       final scannerNotifier = ref.read(scannerProvider.notifier);
+      debugPrint('🔍 FORGOT_ID: Calling addManualScan...');
       await scannerNotifier.addManualScan(student);
+      debugPrint('🔍 FORGOT_ID: addManualScan completed successfully');
       
-      debugPrint('Successfully added manual scan for ${student.studentId}');
+      debugPrint('🔍 FORGOT_ID: Successfully added manual scan for ${student.studentId}');
       
-      // Show success message
-      if (mounted && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Added ${student.firstName} ${student.lastName}'),
-            duration: const Duration(seconds: 2),
-            backgroundColor: Colors.green,
-          ),
-        );
+      // Close dialog and trigger success dialog
+      if (mounted) {
+        debugPrint('🔍 FORGOT_ID: Dismissing dialog...');
+        widget.onDismiss(); // This will handle both dialog close and state reset
+        
+        // Set state to show student success dialog
+        scannerNotifier.showStudentSuccessDialog(student);
+        
+        debugPrint('🔍 FORGOT_ID: Dialog dismissed and success dialog triggered');
       }
     } catch (e, stackTrace) {
-      debugPrint('Error selecting student: $e');
-      debugPrint('Stack trace: $stackTrace');
+      debugPrint('🔍 FORGOT_ID: EXCEPTION in _selectStudent: $e');
+      debugPrint('🔍 FORGOT_ID: Stack trace: $stackTrace');
       
-      if (mounted && context.mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Error: Could not add student'),
             backgroundColor: Colors.red,
           ),
         );
+        // Don't close dialog on error, let user try again
+        debugPrint('🔍 FORGOT_ID: Error handled, dialog remains open for retry');
       }
     }
   }

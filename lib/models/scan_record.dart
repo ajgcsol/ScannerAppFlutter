@@ -32,10 +32,10 @@ class ScanRecord {
   
   Map<String, dynamic> toJson() {
     final json = _$ScanRecordToJson(this);
-    // Map eventId to listId for Firestore compatibility
-    if (json.containsKey('eventId')) {
+    // Keep both eventId and listId for compatibility
+    if (json.containsKey('eventId') && json['eventId'] != null) {
       json['listId'] = json['eventId'];
-      json.remove('eventId');
+      // Don't remove eventId - Firebase Functions API expects it
     }
     return json;
   }

@@ -5,10 +5,23 @@ import '../models/event.dart';
 import '../models/student.dart';
 import '../models/scan.dart';
 import '../services/scanner_service.dart';
+import '../services/sync_service.dart';
+
+// Scan result from camera or manual input
+class ScanResult {
+  final String code;
+  final DateTime timestamp;
+
+  ScanResult({
+    required this.code,
+    required this.timestamp,
+  });
+}
 
 // Scanner State
 @immutable
 class ScannerState {
+  static const _errorMessageSentinel = Object();
   final Event? currentEvent;
   final List<Event> availableEvents;
   final List<Scan> scans;
@@ -21,6 +34,9 @@ class ScannerState {
   final bool showEventSelector;
   final bool showCameraPreview;
   final bool isLoading;
+  final bool isOnline;
+  final bool isSyncing;
+  final int pendingScansCount;
 
   const ScannerState({
     this.currentEvent,
@@ -35,6 +51,9 @@ class ScannerState {
     this.showEventSelector = false,
     this.showCameraPreview = false,
     this.isLoading = false,
+    this.isOnline = true,
+    this.isSyncing = false,
+    this.pendingScansCount = 0,
   });
 
   // Computed properties for tab functionality
@@ -49,7 +68,7 @@ class ScannerState {
     List<Event>? availableEvents,
     List<Scan>? scans,
     Student? verifiedStudent,
-    String? errorMessage,
+    Object? errorMessage = _errorMessageSentinel, // Use static sentinel to allow null
     bool? isScanning,
     bool? showStudentDialog,
     bool? showDuplicateDialog,
@@ -57,13 +76,16 @@ class ScannerState {
     bool? showEventSelector,
     bool? showCameraPreview,
     bool? isLoading,
+    bool? isOnline,
+    bool? isSyncing,
+    int? pendingScansCount,
   }) {
     return ScannerState(
       currentEvent: currentEvent ?? this.currentEvent,
       availableEvents: availableEvents ?? this.availableEvents,
       scans: scans ?? this.scans,
       verifiedStudent: verifiedStudent ?? this.verifiedStudent,
-      errorMessage: errorMessage ?? this.errorMessage,
+      errorMessage: identical(errorMessage, _errorMessageSentinel) ? this.errorMessage : errorMessage as String?,
       isScanning: isScanning ?? this.isScanning,
       showStudentDialog: showStudentDialog ?? this.showStudentDialog,
       showDuplicateDialog: showDuplicateDialog ?? this.showDuplicateDialog,
@@ -71,6 +93,9 @@ class ScannerState {
       showEventSelector: showEventSelector ?? this.showEventSelector,
       showCameraPreview: showCameraPreview ?? this.showCameraPreview,
       isLoading: isLoading ?? this.isLoading,
+      isOnline: isOnline ?? this.isOnline,
+      isSyncing: isSyncing ?? this.isSyncing,
+      pendingScansCount: pendingScansCount ?? this.pendingScansCount,
     );
   }
 }
@@ -79,6 +104,8 @@ class ScannerState {
 class ScannerNotifier extends StateNotifier<ScannerState> {
   final ScannerService _scannerService;
   Timer? _refreshTimer;
+  Timer? _debounceTimer;
+  StreamSubscription<SyncStatus>? _syncStatusSubscription;
 
   ScannerNotifier(this._scannerService) : super(const ScannerState(isLoading: true)) {
     _initialize();
@@ -87,10 +114,24 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _debounceTimer?.cancel();
+    _syncStatusSubscription?.cancel();
     super.dispose();
   }
 
   Future<void> _initialize() async {
+    // Initialize sync service
+    await _scannerService.syncService.initialize();
+    
+    // Listen to sync status changes
+    _syncStatusSubscription = _scannerService.syncStatusStream.listen((syncStatus) {
+      state = state.copyWith(
+        isOnline: syncStatus.isOnline,
+        isSyncing: syncStatus.isSyncing,
+        pendingScansCount: syncStatus.pendingScans,
+      );
+    });
+    
     await _loadEvents();
     if (state.currentEvent != null) {
       await _loadScansForCurrentEvent();
@@ -112,8 +153,11 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     final events = await _scannerService.getEvents();
     debugPrint('📱 Loaded ${events.length} events');
     if (events.isNotEmpty) {
-      debugPrint('📱 Setting current event to: ${events.first.name} (id: ${events.first.id})');
-      state = state.copyWith(availableEvents: events, currentEvent: events.first);
+      // Prefer active events, otherwise take the first one
+      final activeEvents = events.where((e) => e.isActive == true).toList();
+      final selectedEvent = activeEvents.isNotEmpty ? activeEvents.first : events.first;
+      debugPrint('📱 Setting current event to: ${selectedEvent.name} (id: ${selectedEvent.id}, active: ${selectedEvent.isActive})');
+      state = state.copyWith(availableEvents: events, currentEvent: selectedEvent);
     } else {
       debugPrint('📱 No events found, setting empty list');
       state = state.copyWith(availableEvents: []);
@@ -121,55 +165,163 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
   }
 
   Future<void> _loadScansForCurrentEvent() async {
+    debugPrint('📊 _loadScansForCurrentEvent: Starting with error message: ${state.errorMessage}');
     if (state.currentEvent == null) return;
     final scans = await _scannerService.getScansForEvent(
       state.currentEvent!.id,
       eventNumber: state.currentEvent!.eventNumber,
     );
-    state = state.copyWith(scans: scans);
+    debugPrint('📊 _loadScansForCurrentEvent: Before state update, error message: ${state.errorMessage}');
+    debugPrint('📊 _loadScansForCurrentEvent: Before state update, showStudentDialog: ${state.showStudentDialog}');
+    // Preserve dialog states when updating scans
+    state = state.copyWith(
+      scans: scans,
+      // Explicitly preserve dialog states
+      showStudentDialog: state.showStudentDialog,
+      showDuplicateDialog: state.showDuplicateDialog,
+      verifiedStudent: state.verifiedStudent,
+      errorMessage: state.errorMessage,
+    );
+    debugPrint('📊 _loadScansForCurrentEvent: After state update, error message: ${state.errorMessage}');
+    debugPrint('📊 _loadScansForCurrentEvent: After state update, showStudentDialog: ${state.showStudentDialog}');
   }
 
   Future<void> triggerScan() async {
+    // Debounce rapid button taps
+    if (_debounceTimer?.isActive ?? false) {
+      debugPrint('📱 DIALOG: triggerScan() - ignoring due to debounce');
+      return;
+    }
+    
+    // Prevent scan if camera is already showing
+    if (state.showCameraPreview) {
+      debugPrint('📱 DIALOG: triggerScan() - camera already showing, ignoring');
+      return;
+    }
+    
+    debugPrint('📱 DIALOG: triggerScan() - setting showCameraPreview to true');
     state = state.copyWith(showCameraPreview: true);
+    
+    // Set debounce timer for 500ms
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () {});
   }
 
   Future<void> processCameraScan(String code) async {
+    debugPrint('📱 DIALOG: processCameraScan($code) - setting showCameraPreview to false, isScanning to true');
     state = state.copyWith(showCameraPreview: false, isScanning: true);
     final scanResult = ScanResult(code: code, timestamp: DateTime.now());
     await _processScanResult(scanResult);
-    state = state.copyWith(isScanning: false);
+    debugPrint('📱 DIALOG: processCameraScan($code) - setting isScanning to false');
+    debugPrint('📱 DIALOG: Current error message before isScanning update: ${state.errorMessage}');
+    // Preserve existing error message when updating isScanning
+    state = state.copyWith(
+      isScanning: false,
+      errorMessage: state.errorMessage, // Explicitly preserve error message
+    );
+    debugPrint('📱 DIALOG: Error message after isScanning update: ${state.errorMessage}');
+    
+    // Give UI listener time to react to error state before any refresh calls
+    if (state.errorMessage != null) {
+      debugPrint('📱 DIALOG: Error detected, waiting 100ms for UI listener to react');
+      await Future.delayed(const Duration(milliseconds: 100));
+      debugPrint('📱 DIALOG: Delay completed, error message still: ${state.errorMessage}');
+    }
   }
 
   Future<void> _processScanResult(ScanResult scanResult) async {
-    final student = await _scannerService.getStudentById(scanResult.code);
-    if (student != null) {
-      final isDuplicate = state.scans.any((s) => s.studentId == student.studentId);
-      if (isDuplicate) {
-        state = state.copyWith(showDuplicateDialog: true, verifiedStudent: student);
-        return;
-      }
+    debugPrint('📱 SCAN_PROCESS: _processScanResult started with code: ${scanResult.code}');
+    
+    try {
+      debugPrint('📱 SCAN_PROCESS: Calling getStudentById...');
+      final student = await _scannerService.getStudentById(scanResult.code);
+      debugPrint('📱 SCAN_PROCESS: getStudentById returned: ${student != null ? student.studentId : 'null'}');
+      
+      if (student != null) {
+        debugPrint('📱 SCAN_PROCESS: Student found, checking for duplicates...');
+        final isDuplicate = state.scans.any((s) => s.studentId == student.studentId);
+        if (isDuplicate) {
+          debugPrint('📱 SCAN_PROCESS: Duplicate found, showing duplicate dialog');
+          state = state.copyWith(showDuplicateDialog: true, verifiedStudent: student);
+          return;
+        }
 
-      final newScan = Scan(
-        studentId: student.studentId,
-        timestamp: scanResult.timestamp,
-        studentName: student.fullName,
-        studentEmail: student.email,
-      );
-      await _scannerService.recordScan(
-        state.currentEvent!.id, 
-        newScan,
-        eventNumber: state.currentEvent!.eventNumber,
-      );
-      // Refresh scan data immediately to show the new scan
-      await _loadScansForCurrentEvent();
+        debugPrint('📱 SCAN_PROCESS: No duplicate, recording scan...');
+        final newScan = Scan(
+          studentId: student.studentId,
+          timestamp: scanResult.timestamp,
+          studentName: student.fullName,
+          studentEmail: student.email,
+        );
+        
+        await _scannerService.recordScan(
+          state.currentEvent!.id, 
+          newScan,
+          eventNumber: state.currentEvent!.eventNumber,
+        );
+        
+        // Set state to show student dialog after successful scan
+        debugPrint('📱 SCAN_PROCESS: Setting showStudentDialog to true');
+        state = state.copyWith(
+          verifiedStudent: student,
+          showStudentDialog: true,
+        );
+        
+        // Refresh scan data immediately to show the new scan (after setting dialog state)
+        await _loadScansForCurrentEvent();
+        debugPrint('📱 SCAN_PROCESS: Success path completed');
+      } else {
+        debugPrint('📱 SCAN_PROCESS: Student NOT found - recording as error scan');
+        debugPrint('📱 SCAN_PROCESS: Current state before error update - errorMessage: ${state.errorMessage}');
+        
+        // Record both error record and scan record for error cases
+        await _scannerService.recordError(state.currentEvent!.id, scanResult.code);
+        debugPrint('📱 SCAN_PROCESS: recordError completed');
+        
+        // Also create a scan record for the error so it shows up in the scan list
+        final errorScan = Scan(
+          studentId: scanResult.code,
+          timestamp: scanResult.timestamp,
+          studentName: 'Unknown Student (${scanResult.code})',
+          studentEmail: 'Error - Student Not Found',
+        );
+        
+        await _scannerService.recordScan(
+          state.currentEvent!.id, 
+          errorScan,
+          eventNumber: state.currentEvent!.eventNumber,
+        );
+        debugPrint('📱 SCAN_PROCESS: Error scan recorded as scan record');
+        
+        debugPrint('📱 SCAN_PROCESS: About to call state.copyWith with error message');
+        final oldState = state;
+        state = state.copyWith(
+          errorMessage: 'Student not found. Scan recorded with report option.',
+          showStudentDialog: false,
+          verifiedStudent: null,
+        );
+        
+        // Refresh scan data immediately to show the error scan
+        await _loadScansForCurrentEvent();
+        
+        debugPrint('📱 SCAN_PROCESS: state.copyWith completed');
+        debugPrint('📱 SCAN_PROCESS: Old state errorMessage: ${oldState.errorMessage}');
+        debugPrint('📱 SCAN_PROCESS: New state errorMessage: ${state.errorMessage}');
+        debugPrint('📱 SCAN_PROCESS: State update completed for error case');
+      }
+    } catch (e, stackTrace) {
+      debugPrint('📱 SCAN_PROCESS: EXCEPTION caught: $e');
+      debugPrint('📱 SCAN_PROCESS: Stack trace: $stackTrace');
+      
+      debugPrint('📱 SCAN_PROCESS: Setting exception error message');
       state = state.copyWith(
-        verifiedStudent: student,
-        showStudentDialog: true,
+        errorMessage: 'Error processing scan. Please try again.',
+        showStudentDialog: false,
+        verifiedStudent: null,
       );
-    } else {
-      await _scannerService.recordError(state.currentEvent!.id, scanResult.code);
-      state = state.copyWith(errorMessage: 'Student not found. Error has been logged.');
+      debugPrint('📱 SCAN_PROCESS: Exception error message set to: ${state.errorMessage}');
     }
+    
+    debugPrint('📱 SCAN_PROCESS: _processScanResult completed');
   }
 
   void showEventSelector() {
@@ -192,13 +344,41 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     state = state.copyWith(showStudentDialog: false, verifiedStudent: null);
   }
 
+  void showStudentSuccessDialog(Student student) {
+    state = state.copyWith(showStudentDialog: true, verifiedStudent: student);
+  }
+
   void hideDuplicateDialog() {
     state = state.copyWith(showDuplicateDialog: false, verifiedStudent: null);
   }
 
-  Future<void> addManualScan(Student student) async {
-    if (state.currentEvent == null) return;
+  void clearErrorMessage() {
+    debugPrint('📱 CLEAR_ERROR: Clearing error message and resetting dialog states');
+    final oldState = state;
+    state = state.copyWith(
+      errorMessage: null,
+      showStudentDialog: false,
+      showDuplicateDialog: false,
+      showCameraPreview: false,
+      showForgotIdDialog: false,
+      showEventSelector: false, // Explicitly ensure event selector is false
+      verifiedStudent: null,
+      isScanning: false, // Explicitly ensure scanning state is false
+      isLoading: false,  // Explicitly ensure loading state is false
+    );
+    debugPrint('📱 CLEAR_ERROR: Error message cleared and states reset');
+    debugPrint('📱 CLEAR_ERROR: State change - old errorMessage: ${oldState.errorMessage} -> new: ${state.errorMessage}');
+    debugPrint('📱 CLEAR_ERROR: Final state - isScanning: ${state.isScanning}, isLoading: ${state.isLoading}');
+  }
 
+  Future<void> addManualScan(Student student) async {
+    debugPrint('🔍 MANUAL_SCAN: addManualScan called for ${student.studentId}');
+    if (state.currentEvent == null) {
+      debugPrint('🔍 MANUAL_SCAN: ERROR - currentEvent is null');
+      return;
+    }
+
+    debugPrint('🔍 MANUAL_SCAN: Creating scan for event ${state.currentEvent!.id}');
     final newScan = Scan(
       studentId: student.studentId,
       timestamp: DateTime.now(),
@@ -206,13 +386,16 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       studentEmail: student.email,
     );
 
+    debugPrint('🔍 MANUAL_SCAN: Calling recordScan...');
     await _scannerService.recordScan(
       state.currentEvent!.id, 
       newScan,
       eventNumber: state.currentEvent!.eventNumber,
     );
+    debugPrint('🔍 MANUAL_SCAN: recordScan completed, refreshing scans...');
     // Refresh scan data immediately to show the new scan
     await _loadScansForCurrentEvent();
+    debugPrint('🔍 MANUAL_SCAN: addManualScan completed successfully');
   }
 
   Future<void> selectEvent(Event event) async {

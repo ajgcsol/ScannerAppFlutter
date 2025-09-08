@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.addErrorRecord = exports.addScanRecord = exports.getScanRecords = exports.getStudentById = exports.getStudents = exports.getEvents = void 0;
+exports.deleteTestEvent = exports.addErrorRecord = exports.addScanRecord = exports.getScanRecords = exports.getStudentById = exports.getStudents = exports.getEvents = void 0;
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 admin.initializeApp();
@@ -181,7 +181,7 @@ exports.addScanRecord = functions.runWith({ invoker: 'public' }).https.onRequest
             timestamp: scanRecord.timestamp.seconds ?
                 scanRecord.timestamp.seconds * 1000 :
                 scanRecord.timestamp,
-            listId: scanRecord.eventId,
+            listId: scanRecord.listId || scanRecord.eventId,
             eventId: scanRecord.eventId,
             deviceId: scanRecord.deviceId || "",
             verified: scanRecord.processed || false,
@@ -219,6 +219,25 @@ exports.addErrorRecord = functions.runWith({ invoker: 'public' }).https.onReques
     catch (error) {
         console.error("Error adding error record:", error);
         res.status(500).json({ error: "Failed to add error record" });
+    }
+});
+// Delete Test Event (temporary function)
+exports.deleteTestEvent = functions.runWith({ invoker: 'public' }).https.onRequest(async (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, DELETE, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type");
+    if (req.method === "OPTIONS") {
+        res.status(204).send("");
+        return;
+    }
+    try {
+        // Delete the test event
+        await db.collection("events").doc("1756647674290").delete();
+        res.status(200).json({ success: true, message: "Test event deleted" });
+    }
+    catch (error) {
+        console.error("Error deleting test event:", error);
+        res.status(500).json({ error: "Failed to delete test event" });
     }
 });
 //# sourceMappingURL=index.js.map

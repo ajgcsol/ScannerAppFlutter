@@ -18,6 +18,18 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStateMixin {
   late TabController _tabController;
+  bool _isErrorDialogShowing = false;
+  bool _isCameraDialogShowing = false;
+  bool _isEventSelectorShowing = false;
+  bool _isForgotIdDialogShowing = false;
+  bool _isStudentDialogShowing = false;
+  bool _isDuplicateDialogShowing = false;
+  
+  // Master dialog guard - prevents any dialog if another is active
+  bool get _isAnyDialogShowing => _isErrorDialogShowing || 
+    _isCameraDialogShowing || _isEventSelectorShowing || 
+    _isForgotIdDialogShowing || _isStudentDialogShowing || 
+    _isDuplicateDialogShowing;
 
   @override
   void initState() {
@@ -37,63 +49,88 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     final scannerNotifier = ref.read(scannerProvider.notifier);
 
     ref.listen<ScannerState>(scannerProvider, (previous, next) {
-      if (next.showCameraPreview && (previous?.showCameraPreview ?? false) == false) {
+      debugPrint('🏠 LISTENER: State change detected');
+      debugPrint('🏠 LISTENER: Previous errorMessage: ${previous?.errorMessage}');
+      debugPrint('🏠 LISTENER: Next errorMessage: ${next.errorMessage}');
+      debugPrint('🏠 LISTENER: showCameraPreview: ${next.showCameraPreview}');
+      debugPrint('🏠 LISTENER: showStudentDialog: ${next.showStudentDialog}');
+      debugPrint('🏠 LISTENER: showDuplicateDialog: ${next.showDuplicateDialog}');
+      
+      if (next.showCameraPreview && previous != null && (previous.showCameraPreview == false) && !_isAnyDialogShowing) {
+        debugPrint('🏠 LISTENER: Showing camera preview dialog');
+        _isCameraDialogShowing = true;
         showDialog(
           context: context,
           builder: (context) => Dialog(
             child: CameraPreviewScreen(
               onScan: (code) {
+                debugPrint('🏠 LISTENER: Camera scan completed with code: $code');
                 Navigator.of(context).pop();
+                _isCameraDialogShowing = false;
                 scannerNotifier.processCameraScan(code);
               },
             ),
           ),
-        );
+        ).then((_) => _isCameraDialogShowing = false);
       }
 
-      if (next.showEventSelector && (previous?.showEventSelector ?? false) == false) {
+      if (next.showEventSelector && previous != null && (previous.showEventSelector == false) && !_isAnyDialogShowing) {
+        debugPrint('🏠 LISTENER: Showing event selector dialog');
+        _isEventSelectorShowing = true;
         showDialog(
           context: context,
           builder: (context) => EventSelectorDialog(
             events: next.availableEvents,
             onEventSelected: (event) {
               Navigator.of(context).pop();
+              _isEventSelectorShowing = false;
               scannerNotifier.selectEvent(event);
             },
             onDismiss: () {
               Navigator.of(context).pop();
+              _isEventSelectorShowing = false;
               scannerNotifier.hideEventSelector();
             },
           ),
-        );
+        ).then((_) => _isEventSelectorShowing = false);
       }
 
-      if (next.showForgotIdDialog && (previous?.showForgotIdDialog ?? false) == false) {
+      if (next.showForgotIdDialog && previous != null && (previous.showForgotIdDialog == false) && !_isAnyDialogShowing) {
+        debugPrint('🏠 LISTENER: Showing forgot ID dialog');
+        _isForgotIdDialogShowing = true;
         showDialog(
           context: context,
+          barrierDismissible: false, // Prevent dismissal by tapping outside
           builder: (context) => ForgotIdDialog(
             onDismiss: () {
               Navigator.of(context).pop();
+              _isForgotIdDialogShowing = false;
               scannerNotifier.hideForgotIdDialog();
             },
           ),
-        );
+        ).then((_) => _isForgotIdDialogShowing = false);
       }
 
-      if (next.showStudentDialog && next.verifiedStudent != null) {
+      if (next.showStudentDialog && previous != null && (previous.showStudentDialog == false) && next.verifiedStudent != null && !_isAnyDialogShowing) {
+        debugPrint('🏠 LISTENER: Showing student dialog');
+        _isStudentDialogShowing = true;
         showDialog(
           context: context,
+          barrierDismissible: true,
           builder: (context) => StudentVerificationDialog(
             student: next.verifiedStudent,
             onDismiss: () {
               Navigator.of(context).pop();
-              scannerNotifier.hideStudentDialog();
+              _isStudentDialogShowing = false;
+              scannerNotifier.clearErrorMessage();
             },
           ),
-        );
+        ).then((_) => _isStudentDialogShowing = false);
       }
 
-      if (next.showDuplicateDialog && next.verifiedStudent != null) {
+      if (next.showDuplicateDialog && previous != null && (previous.showDuplicateDialog == false) && next.verifiedStudent != null && !_isAnyDialogShowing) {
+        debugPrint('🏠 LISTENER: Showing duplicate dialog');
+        _isDuplicateDialogShowing = true;
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
@@ -103,13 +140,72 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               TextButton(
                 onPressed: () {
                   Navigator.of(context).pop();
-                  scannerNotifier.hideDuplicateDialog();
+                  _isDuplicateDialogShowing = false;
+                  // Use comprehensive state reset instead of just hiding duplicate dialog
+                  scannerNotifier.clearErrorMessage();
                 },
                 child: const Text('OK'),
               ),
             ],
           ),
-        );
+        ).then((_) => _isDuplicateDialogShowing = false);
+      }
+
+      // Handle error messages with dialog
+      if (next.errorMessage != null && (previous?.errorMessage ?? '') != next.errorMessage) {
+        if (!_isAnyDialogShowing) {
+          _isErrorDialogShowing = true;
+          debugPrint('🏠 LISTENER: Error message detected: "${next.errorMessage}"');
+          debugPrint('🏠 LISTENER: Showing error dialog');
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => AlertDialog(
+              title: const Text(
+                'Scan Error',
+                style: TextStyle(
+                  color: Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              content: Text(next.errorMessage!),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    debugPrint('🏠 LISTENER: Error dialog dismissed - about to pop dialog');
+                    Navigator.of(context).pop();
+                    _isErrorDialogShowing = false; // Reset dialog flag
+                    debugPrint('🏠 LISTENER: Dialog popped, now calling clearErrorMessage()');
+                    scannerNotifier.clearErrorMessage();
+                    debugPrint('🏠 LISTENER: clearErrorMessage() called successfully');
+                  },
+                  child: const Text('OK'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    debugPrint('🏠 LISTENER: Report button pressed - showing email input');
+                    Navigator.of(context).pop(); // Close error dialog first
+                    _isErrorDialogShowing = false;
+                    _showReportDialog(context, scannerNotifier);
+                  },
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.blue,
+                  ),
+                  child: const Text('Report'),
+                ),
+              ],
+            ),
+          ).then((_) {
+            // Ensure flag is reset even if dialog is dismissed other ways
+            _isErrorDialogShowing = false;
+          });
+        } else {
+          debugPrint('🏠 LISTENER: Dialog already showing, skipping new error dialog');
+        }
+      } else if (next.errorMessage != null) {
+        debugPrint('🏠 LISTENER: Error message exists but not new: "${next.errorMessage}"');
+      } else {
+        debugPrint('🏠 LISTENER: No error message in state');
       }
     });
 
@@ -228,13 +324,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                             ),
                           ),
                           const SizedBox(height: 4),
-                          Text(
-                            'Connected',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              if (scannerState.isSyncing)
+                                SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Theme.of(context).colorScheme.primary,
+                                    ),
+                                  ),
+                                )
+                              else
+                                Icon(
+                                  scannerState.isOnline 
+                                    ? Icons.cloud_done 
+                                    : Icons.cloud_off,
+                                  size: 16,
+                                  color: scannerState.isOnline 
+                                    ? Colors.green 
+                                    : Colors.orange,
+                                ),
+                              const SizedBox(width: 6),
+                              Text(
+                                scannerState.isOnline 
+                                  ? (scannerState.isSyncing ? 'Syncing' : 'Online')
+                                  : 'Offline',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: scannerState.isOnline 
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Colors.orange,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                              if (scannerState.pendingScansCount > 0)
+                                Text(
+                                  ' (${scannerState.pendingScansCount})',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.orange,
+                                  ),
+                                ),
+                            ],
                           ),
                         ],
                       ),
@@ -410,6 +548,91 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           
           // Bottom spacing for FAB
           const SizedBox(height: 80),
+        ],
+      ),
+    );
+  }
+
+  void _showReportDialog(BuildContext context, ScannerNotifier scannerNotifier) {
+    final TextEditingController emailController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text(
+          'Report Scan Issue',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Please provide the correct email address for this student:',
+              style: TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: emailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Student Email',
+                hintText: 'student@charlestonlaw.edu',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.email),
+              ),
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              debugPrint('🏠 REPORT: Cancel button pressed');
+              Navigator.of(context).pop();
+              scannerNotifier.clearErrorMessage();
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final email = emailController.text.trim();
+              if (email.isNotEmpty && email.contains('@')) {
+                debugPrint('🏠 REPORT: Submitting report with email: $email');
+                // TODO: Update the error scan record with the provided email
+                // For now, just show confirmation and close
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Report submitted with email: $email',
+                      style: const TextStyle(fontSize: 13),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 2,
+                    ),
+                    backgroundColor: Colors.green,
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+                scannerNotifier.clearErrorMessage();
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please enter a valid email address'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Submit Report'),
+          ),
         ],
       ),
     );

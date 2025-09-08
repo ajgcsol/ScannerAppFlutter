@@ -18,27 +18,36 @@ steps:
     
     environment_variables:
       - name: FLUTTER_ROOT
-        value: /usr/local/flutter
+        value: /Users/local/flutter
+      - name: DEVELOPMENT_TEAM
+        value: 4BVW4KZPSA
+      - name: BUNDLE_ID
+        value: com.charlestonlaw.insession
+    
+    # Note: The following environment variables must be configured 
+    # in Xcode Cloud dashboard (App Store Connect > Xcode Cloud > Workflows):
+    # - APP_STORE_CONNECT_USERNAME: your-email@domain.com
+    # - APP_STORE_CONNECT_PASSWORD: app-specific password from Apple ID
     
     pre_actions:
       - name: Install Flutter
         script: |
           # Install Flutter
-          git clone https://github.com/flutter/flutter.git -b stable /usr/local/flutter
-          export PATH="/usr/local/flutter/bin:$PATH"
+          git clone https://github.com/flutter/flutter.git -b stable /Users/local/flutter
+          export PATH="/Users/local/flutter/bin:$PATH"
           flutter doctor
           flutter precache --ios
           
       - name: Install Dependencies
         script: |
-          export PATH="/usr/local/flutter/bin:$PATH"
+          export PATH="/Users/local/flutter/bin:$PATH"
           flutter pub get
           cd ios && pod install --clean-install && cd ..
     
     actions:
       - name: Flutter Build
         script: |
-          export PATH="/usr/local/flutter/bin:$PATH"
+          export PATH="/Users/local/flutter/bin:$PATH"
           flutter build ios --release --no-codesign
           
       - name: Archive App

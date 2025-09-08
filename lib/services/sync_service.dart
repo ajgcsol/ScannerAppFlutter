@@ -18,7 +18,7 @@ class SyncService {
   final FirebaseService _firebaseService = FirebaseService.instance;
   final Connectivity _connectivity = Connectivity();
   
-  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  StreamSubscription<ConnectivityResult>? _connectivitySubscription;
   Timer? _syncTimer;
   bool _isSyncing = false;
   bool _isOnline = true;
@@ -45,9 +45,9 @@ class SyncService {
     await _checkConnectivity();
     
     // Listen for connectivity changes
-    _connectivitySubscription = _connectivity.onConnectivityChanged.listen((results) {
+    _connectivitySubscription = _connectivity.onConnectivityChanged.listen((result) {
       final wasOnline = _isOnline;
-      _isOnline = results.any((result) => result != ConnectivityResult.none);
+      _isOnline = result != ConnectivityResult.none;
       
       debugPrint('🔄 SYNC: Connectivity changed - Online: $_isOnline');
       
@@ -74,7 +74,7 @@ class SyncService {
   
   Future<void> _checkConnectivity() async {
     final connectivityResult = await _connectivity.checkConnectivity();
-    _isOnline = connectivityResult.any((result) => result != ConnectivityResult.none);
+    _isOnline = connectivityResult != ConnectivityResult.none;
     debugPrint('🔄 SYNC: Initial connectivity check - Online: $_isOnline');
     _updateStatus(isOnline: _isOnline);
   }

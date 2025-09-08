@@ -153,9 +153,23 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     final events = await _scannerService.getEvents();
     debugPrint('📱 Loaded ${events.length} events');
     if (events.isNotEmpty) {
-      // Prefer active events, otherwise take the first one
+      // Prefer active events, but prioritize real Firebase events over sample events
       final activeEvents = events.where((e) => e.isActive == true).toList();
-      final selectedEvent = activeEvents.isNotEmpty ? activeEvents.first : events.first;
+      
+      Event selectedEvent;
+      if (activeEvents.isNotEmpty) {
+        // Filter out sample/test events and prefer real Firebase events
+        final realActiveEvents = activeEvents.where((e) => 
+          !e.name.toLowerCase().contains('sample') && 
+          !e.name.toLowerCase().contains('test') &&
+          !e.id.startsWith('event_')
+        ).toList();
+        
+        selectedEvent = realActiveEvents.isNotEmpty ? realActiveEvents.first : activeEvents.first;
+      } else {
+        selectedEvent = events.first;
+      }
+      
       debugPrint('📱 Setting current event to: ${selectedEvent.name} (id: ${selectedEvent.id}, active: ${selectedEvent.isActive})');
       state = state.copyWith(availableEvents: events, currentEvent: selectedEvent);
     } else {

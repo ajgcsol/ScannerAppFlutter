@@ -9,8 +9,9 @@ echo "🔥 Starting ci_post_clone.sh..."
 
 # Install Flutter
 echo "📱 Installing Flutter..."
-git clone https://github.com/flutter/flutter.git -b stable --depth 1 $HOME/flutter
-export PATH="$PATH:$HOME/flutter/bin"
+sudo git clone https://github.com/flutter/flutter.git -b stable --depth 1 /usr/local/flutter
+sudo chown -R $(whoami) /usr/local/flutter
+export PATH="$PATH:/usr/local/flutter/bin"
 
 # Flutter setup
 echo "📱 Setting up Flutter..."

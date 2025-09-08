@@ -7,10 +7,16 @@ set -e
 
 echo "🔥 Starting ci_post_clone.sh..."
 
-# Install Flutter
-echo "📱 Installing Flutter..."
-git clone https://github.com/flutter/flutter.git -b stable --depth 1 $HOME/flutter
-export PATH="$PATH:$HOME/flutter/bin"
+# Check if Flutter is already installed
+if command -v flutter > /dev/null 2>&1; then
+    echo "📱 Flutter already installed, skipping installation..."
+    export PATH="$PATH:$HOME/flutter/bin"
+else
+    # Install Flutter
+    echo "📱 Installing Flutter..."
+    git clone https://github.com/flutter/flutter.git -b stable --depth 1 $HOME/flutter
+    export PATH="$PATH:$HOME/flutter/bin"
+fi
 
 # Flutter setup
 echo "📱 Setting up Flutter..."

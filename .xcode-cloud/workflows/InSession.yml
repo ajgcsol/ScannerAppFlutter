@@ -5,70 +5,43 @@ trigger:
   branches:
     include:
       - ios-ui-improvements
-      - main
+      - master
+      - copilot/troubleshoot-xcode-cloud-branch-issue
   
   pull_requests:
     branches:
-      - main
+      - master
 
 steps:
   - name: Build iOS App
-    platform: macos-ventura
-    xcode_version: 15.2
+    platform: macos-sonoma
+    xcode_version: 15.4
     
     environment_variables:
-      - name: FLUTTER_ROOT
-        value: /usr/local/flutter
-    
-    pre_actions:
-      - name: Install Flutter
-        script: |
-          # Install Flutter
-          git clone https://github.com/flutter/flutter.git -b stable /usr/local/flutter
-          export PATH="/usr/local/flutter/bin:$PATH"
-          flutter doctor
-          flutter precache --ios
-          
-      - name: Install Dependencies
-        script: |
-          export PATH="/usr/local/flutter/bin:$PATH"
-          flutter pub get
-          cd ios && pod install --clean-install && cd ..
-    
-    actions:
-      - name: Flutter Build
-        script: |
-          export PATH="/usr/local/flutter/bin:$PATH"
-          flutter build ios --release --no-codesign
-          
-      - name: Archive App
-        script: |
-          xcodebuild -workspace ios/Runner.xcworkspace \
-                     -scheme Runner \
-                     -configuration Release \
-                     -destination generic/platform=iOS \
-                     -archivePath build/ios/archive/Runner.xcarchive \
-                     archive
+      - name: APP_STORE_CONNECT_USERNAME
+        value: $(APP_STORE_CONNECT_USERNAME)
+      - name: APP_STORE_CONNECT_PASSWORD
+        value: $(APP_STORE_CONNECT_PASSWORD)
     
     post_actions:
-      - name: Export IPA
-        script: |
-          xcodebuild -exportArchive \
-                     -archivePath build/ios/archive/Runner.xcarchive \
-                     -exportPath build/ios/ipa \
-                     -exportOptionsPlist ios/ExportOptions.plist
-                     
       - name: Upload to TestFlight
         script: |
-          xcrun altool --upload-app \
-                       --type ios \
-                       --file build/ios/ipa/InSession.ipa \
-                       --username "$APP_STORE_CONNECT_USERNAME" \
-                       --password "$APP_STORE_CONNECT_PASSWORD"
+          # Note: The archive and export are handled automatically by Xcode Cloud
+          # The IPA will be available in the default build output location
+          # Upload to TestFlight if credentials are configured
+          if [ -n "$APP_STORE_CONNECT_USERNAME" ] && [ -n "$APP_STORE_CONNECT_PASSWORD" ]; then
+            xcrun altool --upload-app \
+                         --type ios \
+                         --file "build/ios/Runner.ipa" \
+                         --username "$APP_STORE_CONNECT_USERNAME" \
+                         --password "$APP_STORE_CONNECT_PASSWORD"
+          else
+            echo "TestFlight upload skipped - App Store Connect credentials not configured"
+          fi
 
 artifacts:
   - path: build/ios/ipa/*.ipa
-    name: InSession iOS App
+    name: Runner iOS App
   - path: build/ios/archive/Runner.xcarchive
     name: iOS Archive
 

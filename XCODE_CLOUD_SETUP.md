@@ -23,10 +23,10 @@ This document provides instructions for setting up Xcode Cloud CI/CD for the InS
 
 The project includes a pre-configured Xcode Cloud workflow at `.xcode-cloud/workflows/InSession.yml` that:
 
-- Triggers on pushes to `ios-ui-improvements` and `main` branches
-- Installs Flutter and dependencies
-- Builds the iOS app
-- Archives and exports IPA
+- Triggers on pushes to `ios-ui-improvements` and `master` branches
+- Uses CI scripts to install Flutter and dependencies  
+- Builds the iOS app using Flutter
+- Archives and exports IPA automatically via Xcode Cloud
 - Uploads to TestFlight (when credentials are configured)
 
 ### 3. Required Environment Variables
@@ -63,20 +63,47 @@ The following scripts are included for Xcode Cloud:
 
 ## Testing the Setup
 
-1. Push changes to the `ios-ui-improvements` branch
-2. Check Xcode Cloud dashboard for build progress
-3. Successful builds will appear in TestFlight for internal testing
+1. **Validate Configuration**: Run the validation script to check your setup:
+   ```bash
+   ./validate_xcode_cloud.sh
+   ```
+
+2. Push changes to the `ios-ui-improvements` or `master` branch
+3. Check Xcode Cloud dashboard for build progress
+4. Successful builds will appear in TestFlight for internal testing
 
 ## Troubleshooting
+
+### Common Issues
 
 - **Flutter not found**: Ensure `ci_post_clone.sh` is executable (`chmod +x`)
 - **Code signing issues**: Verify Team ID and certificates in developer portal
 - **Build failures**: Check Xcode Cloud logs for specific error messages
 - **TestFlight upload fails**: Verify App Store Connect credentials and app configuration
+- **Branch not triggering builds**: Ensure your branch name matches the workflow triggers (`ios-ui-improvements` or `master`)
+- **Dependency conflicts**: Clear derived data and ensure `pod install` completes successfully
+
+### Debug Steps
+
+1. **Check Xcode Cloud Logs**: In App Store Connect > Xcode Cloud, view the detailed logs for each build step
+2. **Verify CI Scripts**: Ensure both `ci_post_clone.sh` and `ci_pre_xcodebuild.sh` are executable
+3. **Test Flutter Build Locally**: Run `flutter build ios --release --no-codesign` to verify the app builds
+4. **Check iOS Configuration**: Verify Team ID, Bundle ID, and signing certificates are properly configured
+5. **Validate Workflow**: Ensure the `.xcode-cloud/workflows/InSession.yml` file is properly formatted
+
+### Configuration Checklist
+
+- [ ] Repository connected to Xcode Cloud in App Store Connect
+- [ ] Team ID set correctly in iOS project (`4BVW4KZPSA`)
+- [ ] Bundle ID matches: `com.charlestonlaw.insession`
+- [ ] App Store Connect credentials configured (if using TestFlight upload)
+- [ ] CI scripts have execute permissions
+- [ ] Pushing to correct branch (`ios-ui-improvements` or `master`)
+- [ ] Xcode Cloud workflow file exists at `.xcode-cloud/workflows/InSession.yml`
 
 ## Next Steps
 
 1. Complete the setup in App Store Connect
 2. Configure team and certificates for code signing
-3. Test the workflow by pushing to the `ios-ui-improvements` branch
+3. Test the workflow by pushing to the `ios-ui-improvements` or `master` branch
 4. Set up automatic TestFlight distribution for beta testing

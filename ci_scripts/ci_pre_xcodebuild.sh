@@ -12,6 +12,11 @@ export PATH="$PATH:$HOME/flutter/bin"
 
 # Verify Flutter installation
 echo "📱 Verifying Flutter installation..."
+if ! command -v flutter > /dev/null 2>&1; then
+    echo "❌ Flutter not found in PATH!"
+    exit 1
+fi
+
 flutter doctor -v
 
 # Build Flutter iOS app

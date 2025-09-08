@@ -9,11 +9,10 @@ echo "🔥 Starting ci_post_clone.sh..."
 
 # We're already in project root when script runs from ci_scripts/
 
-# Install Flutter
+# Install Flutter (without sudo for Xcode Cloud)
 echo "📱 Installing Flutter..."
-sudo git clone https://github.com/flutter/flutter.git -b stable --depth 1 /usr/local/flutter
-sudo chown -R $(whoami) /usr/local/flutter
-export PATH="$PATH:/usr/local/flutter/bin"
+git clone https://github.com/flutter/flutter.git -b stable --depth 1 ~/flutter
+export PATH="$PATH:$HOME/flutter/bin"
 
 # Flutter setup
 echo "📱 Setting up Flutter..."

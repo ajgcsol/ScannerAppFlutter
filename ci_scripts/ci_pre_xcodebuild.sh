@@ -19,7 +19,7 @@ echo "🔍 DEBUG: Contents of project root:"
 ls -la
 
 # Set Flutter path (should be installed by ci_post_clone.sh)
-export PATH="$PATH:/usr/local/flutter/bin"
+export PATH="$PATH:$HOME/flutter/bin"
 
 # Verify Flutter installation
 echo "📱 Verifying Flutter installation..."

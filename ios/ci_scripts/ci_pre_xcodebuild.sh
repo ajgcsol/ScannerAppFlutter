@@ -12,9 +12,10 @@ echo "🔍 DEBUG: Current working directory: $(pwd)"
 echo "🔍 DEBUG: Contents of current directory:"
 ls -la
 
-# We're already in project root when script runs from ci_scripts/
-
-echo "🔍 DEBUG: Confirmed we're in project root: $(pwd)"
+# Navigate to project root (we're currently in ios/ci_scripts/)
+echo "🔍 DEBUG: Navigating to project root..."
+cd ../..
+echo "🔍 DEBUG: Now in project root: $(pwd)"
 echo "🔍 DEBUG: Contents of project root:"
 ls -la
 

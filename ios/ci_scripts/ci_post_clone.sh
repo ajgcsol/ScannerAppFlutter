@@ -29,6 +29,12 @@ flutter precache --ios
 echo "📦 Installing Dart dependencies..."
 flutter pub get
 
+# Navigate to project root first (we're currently in ios/ci_scripts/)
+echo "🔍 DEBUG: Navigating to project root..."
+cd ../..
+echo "🔍 DEBUG: Now in: $(pwd)"
+ls -la
+
 # Install iOS dependencies
 echo "🍎 Installing iOS dependencies..."
 cd ios

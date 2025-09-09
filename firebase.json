@@ -2,6 +2,15 @@
   "functions": {
     "source": "functions"
   },
+  "hosting": {
+    "site": "scannerappfb",
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ]
+  },
   "flutter": {
     "platforms": {
       "android": {

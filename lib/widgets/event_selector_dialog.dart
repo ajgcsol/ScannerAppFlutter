@@ -27,7 +27,23 @@ class _EventSelectorDialogState extends State<EventSelectorDialog> {
     if (_showAllEvents) {
       return widget.events;
     } else {
-      return widget.events.where((event) => event.isActive && !event.isCompleted).toList();
+      // Filter for active, non-completed, non-sample events
+      return widget.events.where((event) {
+        final name = event.name.toLowerCase();
+        final id = event.id.toLowerCase();
+        
+        // Check if it's a sample/test event
+        final isSampleEvent = name.contains('sample') || 
+                             name.contains('test') ||
+                             name.contains('demo') ||
+                             name.contains('example') ||
+                             id.startsWith('event_') ||
+                             id.contains('sample') ||
+                             id.contains('test') ||
+                             id.contains('demo');
+        
+        return event.isActive && !event.isCompleted && !isSampleEvent;
+      }).toList();
     }
   }
 

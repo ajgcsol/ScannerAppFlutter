@@ -287,15 +287,44 @@ export const addScanRecord = functions.runWith({invoker: 'public'}).https.onRequ
     
     console.log(`Final actualEventId for storage: ${actualEventId} (original: ${scanRecord.eventId})`)
 
+    // Get student data for enrichment
+    let studentData: any = null;
+    const studentId = scanRecord.studentId || scanRecord.code;
+    
+    if (studentId) {
+      try {
+        console.log(`Looking up student data for studentId: ${studentId}`);
+        const studentSnapshot = await db.collection("students")
+          .where("studentId", "==", studentId)
+          .limit(1)
+          .get();
+        
+        if (!studentSnapshot.empty) {
+          studentData = studentSnapshot.docs[0].data();
+          console.log(`Found student: ${studentData.firstName} ${studentData.lastName}`);
+        } else {
+          console.log(`No student found with studentId: ${studentId}`);
+        }
+      } catch (studentLookupError) {
+        console.error("Error looking up student:", studentLookupError);
+      }
+    }
+
     // Add to nested structure (for Android compatibility)
     const nestedScanData = {
       ...scanRecord,
       eventId: actualEventId,
-      symbology: scanRecord.symbology || "QR_CODE", // Ensure symbology is not undefined
-      studentId: scanRecord.studentId || scanRecord.code,
+      symbology: scanRecord.symbology || "QR_CODE",
+      studentId: studentId,
       deviceId: scanRecord.deviceId || "",
       synced: scanRecord.synced || false,
-      processed: scanRecord.processed || false,
+      processed: studentData ? true : (scanRecord.processed || false),
+      verified: studentData ? true : (scanRecord.processed || false),
+      // Add student enrichment data
+      firstName: studentData?.firstName || "",
+      lastName: studentData?.lastName || "",
+      email: studentData?.email || "",
+      fullName: studentData ? `${studentData.firstName} ${studentData.lastName}` : "",
       metadata: scanRecord.metadata || {},
     };
     await db.collection("lists")
@@ -304,19 +333,25 @@ export const addScanRecord = functions.runWith({invoker: 'public'}).https.onRequ
       .doc(scanRecord.id)
       .set(nestedScanData);
 
-    // Add to flat structure (for admin portal compatibility)
+    // Add to flat structure (for admin portal compatibility) - WITH ENRICHMENT
     const flatScanData = {
       code: scanRecord.code,
       timestamp: scanRecord.timestamp.seconds ? 
         scanRecord.timestamp.seconds * 1000 : 
         scanRecord.timestamp,
-      listId: actualEventId, // Use actual Firebase eventId to match existing working scans
-      eventId: actualEventId, // Use actual Firebase eventId 
+      listId: actualEventId,
+      eventId: actualEventId,
       deviceId: scanRecord.deviceId || "",
-      verified: scanRecord.processed || false,
-      symbology: scanRecord.symbology || "QR_CODE", // Default to QR_CODE if undefined
-      studentId: scanRecord.studentId || scanRecord.code,
+      verified: studentData ? true : (scanRecord.processed || false),
+      processed: studentData ? true : (scanRecord.processed || false),
+      symbology: scanRecord.symbology || "QR_CODE",
+      studentId: studentId,
       synced: scanRecord.synced || false,
+      // CRITICAL: Add enriched student data for admin portal
+      firstName: studentData?.firstName || "",
+      lastName: studentData?.lastName || "",
+      email: studentData?.email || "",
+      fullName: studentData ? `${studentData.firstName} ${studentData.lastName}` : "",
       metadata: scanRecord.metadata || {},
     };
 
@@ -635,6 +670,75 @@ export const fixScanRecords = functions.runWith({invoker: 'public'}).https.onReq
   }
 });
 
+// Delete Scan Record (for admin portal)
+export const deleteScanRecord = functions.runWith({invoker: 'public'}).https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "DELETE, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "DELETE") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  try {
+    const { scanId, eventId } = req.body;
+    
+    if (!scanId) {
+      res.status(400).json({ error: "scanId is required" });
+      return;
+    }
+
+    console.log(`Deleting scan record: ${scanId} from event: ${eventId || 'unknown'}`);
+
+    // Delete from flat structure (main scans collection)
+    const scanDoc = await db.collection("scans").doc(scanId).get();
+    
+    if (!scanDoc.exists) {
+      res.status(404).json({ error: "Scan record not found" });
+      return;
+    }
+
+    const scanData = scanDoc.data();
+    const actualEventId = eventId || scanData?.listId || scanData?.eventId;
+
+    // Delete from flat structure
+    await db.collection("scans").doc(scanId).delete();
+    console.log(`Deleted scan ${scanId} from flat structure`);
+
+    // Also delete from nested structure if eventId is available
+    if (actualEventId) {
+      try {
+        await db.collection("lists")
+          .doc(actualEventId)
+          .collection("scans")
+          .doc(scanId)
+          .delete();
+        console.log(`Deleted scan ${scanId} from nested structure (event ${actualEventId})`);
+      } catch (nestedError) {
+        console.log(`Could not delete from nested structure: ${nestedError}`);
+        // Don't fail the request if nested deletion fails
+      }
+    }
+
+    console.log(`Successfully deleted scan record: ${scanId}`);
+    res.status(200).json({ 
+      success: true, 
+      message: "Scan record deleted successfully",
+      scanId: scanId,
+      eventId: actualEventId
+    });
+  } catch (error) {
+    console.error("Error deleting scan record:", error);
+    res.status(500).json({ error: "Failed to delete scan record" });
+  }
+});
+
 // Delete Test Event (temporary function)
 export const deleteTestEvent = functions.runWith({invoker: 'public'}).https.onRequest(async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
@@ -653,6 +757,150 @@ export const deleteTestEvent = functions.runWith({invoker: 'public'}).https.onRe
   } catch (error) {
     console.error("Error deleting test event:", error);
     res.status(500).json({ error: "Failed to delete test event" });
+  }
+});
+
+// Update Event
+export const updateEvent = functions.runWith({invoker: 'public'}).https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "PUT, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "PUT") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  try {
+    const {
+      id,
+      eventNumber,
+      name,
+      description,
+      location,
+      date,
+      isActive,
+      isCompleted,
+      completedAt,
+      exportFormat
+    } = req.body;
+
+    if (!id) {
+      res.status(400).json({ error: "Event ID is required" });
+      return;
+    }
+
+    // Prepare update data
+    const updateData: any = {
+      eventNumber,
+      name,
+      description,
+      location,
+      date,
+      isActive,
+      isCompleted,
+      exportFormat,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Only set completedAt if provided (can be null to clear it)
+    if (completedAt !== undefined) {
+      updateData.completedAt = completedAt;
+    }
+
+    // Update the event in Firestore
+    await db.collection("events").doc(id).update(updateData);
+
+    // Get the updated event data
+    const eventDoc = await db.collection("events").doc(id).get();
+    if (!eventDoc.exists) {
+      res.status(404).json({ error: "Event not found after update" });
+      return;
+    }
+
+    const eventData = eventDoc.data();
+    const updatedEvent = {
+      id: eventDoc.id,
+      ...eventData,
+    };
+
+    console.log(`Event ${id} updated successfully`);
+    res.status(200).json(updatedEvent);
+  } catch (error) {
+    console.error("Error updating event:", error);
+    res.status(500).json({ error: "Failed to update event" });
+  }
+});
+
+// Bulk Delete Scan Records (for admin portal)
+export const bulkDeleteScanRecords = functions.runWith({invoker: 'public'}).https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "DELETE, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "DELETE") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  try {
+    const { recordIds, eventId } = req.body;
+
+    if (!recordIds || !Array.isArray(recordIds) || recordIds.length === 0) {
+      res.status(400).json({ error: "recordIds array is required" });
+      return;
+    }
+
+    if (!eventId) {
+      res.status(400).json({ error: "eventId is required" });
+      return;
+    }
+
+    console.log(`Bulk deleting ${recordIds.length} scan records for event ${eventId}`);
+
+    let deletedCount = 0;
+    const errors = [];
+
+    // Delete each record
+    for (const recordId of recordIds) {
+      try {
+        // Delete from flat structure (scans collection)
+        await db.collection("scans").doc(recordId).delete();
+        
+        // Delete from nested structure (lists collection under events)
+        await db.collection("events").doc(eventId).collection("lists").doc(recordId).delete();
+        
+        deletedCount++;
+        console.log(`Deleted scan record: ${recordId}`);
+      } catch (error) {
+        console.error(`Failed to delete record ${recordId}:`, error);
+        errors.push({ recordId, error: error.message });
+      }
+    }
+
+    const response = {
+      success: true,
+      message: `Successfully deleted ${deletedCount} of ${recordIds.length} records`,
+      deletedCount,
+      totalRequested: recordIds.length,
+      errors: errors.length > 0 ? errors : undefined,
+    };
+
+    console.log(`Bulk delete completed: ${deletedCount}/${recordIds.length} records deleted`);
+    res.status(200).json(response);
+  } catch (error) {
+    console.error("Error in bulk delete operation:", error);
+    res.status(500).json({ error: "Failed to delete scan records" });
   }
 });
 

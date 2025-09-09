@@ -297,11 +297,49 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                 // Summary Tab
                 EventSummaryTab(
                   uiState: scannerState,
-                  onCompleteEvent: () {
-                    // TODO: Implement event completion
+                  onCompleteEvent: () async {
+                    try {
+                      await scannerNotifier.completeEvent();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Event marked as completed'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Error completing event: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
                   },
-                  onReopenEvent: (event) {
-                    // TODO: Implement event reopening
+                  onReopenEvent: (event) async {
+                    try {
+                      await scannerNotifier.reopenEvent(event);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Event reopened successfully'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Error reopening event: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
                   },
                 ),
               ],
@@ -313,17 +351,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   Widget _buildHomeTab(BuildContext context, ScannerState scannerState, scannerNotifier) {
     final lastScan = scannerState.scans.isNotEmpty ? scannerState.scans.first : null;
     
-    return SingleChildScrollView(
-      child: Padding(
+    return RefreshIndicator(
+      onRefresh: () async {
+        debugPrint('🔄 Pull to refresh triggered');
+        // Reload events and current event data
+        await scannerNotifier.loadEvents();
+        if (scannerState.currentEvent != null) {
+          await scannerNotifier.refreshCurrentEvent();
+        }
+        debugPrint('🔄 Pull to refresh completed');
+      },
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Current Event Section
-            EventHeaderCard(
-              currentEvent: scannerState.currentEvent,
-              onSelectEvent: () => scannerNotifier.showEventSelector(),
-            ),
+        children: [
+          // Current Event Section
+          EventHeaderCard(
+            currentEvent: scannerState.currentEvent,
+            onSelectEvent: () => scannerNotifier.showEventSelector(),
+          ),
             
             const SizedBox(height: 20),
             
@@ -544,37 +590,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               ],
             ),
             
-            // Bottom spacing
-            const SizedBox(height: 80),
-          ],
-        ),
+          // Bottom spacing
+          const SizedBox(height: 80),
+        ],
       ),
     );
   }
 
   Widget _buildScansTab(BuildContext context, ScannerState scannerState, scannerNotifier) {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          // Event Header
-          EventHeaderCard(
-            currentEvent: scannerState.currentEvent,
-            onSelectEvent: () => scannerNotifier.showEventSelector(),
-          ),
-          
-          // Scan List
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: scannerState.scans.length,
-            itemBuilder: (context, index) {
-              return ScanItem(scan: scannerState.scans[index]);
-            },
-          ),
-          
-          // Bottom spacing for FAB
-          const SizedBox(height: 80),
-        ],
+    return RefreshIndicator(
+      onRefresh: () async {
+        debugPrint('🔄 Scans tab: Pull to refresh triggered');
+        // Reload events and current event data
+        await scannerNotifier.loadEvents();
+        if (scannerState.currentEvent != null) {
+          await scannerNotifier.refreshCurrentEvent();
+        }
+        debugPrint('🔄 Scans tab: Pull to refresh completed');
+      },
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: scannerState.scans.length + 2, // +2 for header and bottom spacing
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            // Event Header
+            return EventHeaderCard(
+              currentEvent: scannerState.currentEvent,
+              onSelectEvent: () => scannerNotifier.showEventSelector(),
+            );
+          } else if (index <= scannerState.scans.length) {
+            // Scan items
+            return ScanItem(scan: scannerState.scans[index - 1]);
+          } else {
+            // Bottom spacing
+            return const SizedBox(height: 80);
+          }
+        },
       ),
     );
   }

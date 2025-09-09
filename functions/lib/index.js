@@ -227,14 +227,38 @@ exports.addScanRecord = functions.runWith({ invoker: 'public' }).https.onRequest
             }
         }
         console.log(`Final actualEventId for storage: ${actualEventId} (original: ${scanRecord.eventId})`);
+        // Get student data for enrichment
+        let studentData = null;
+        const studentId = scanRecord.studentId || scanRecord.code;
+        if (studentId) {
+            try {
+                console.log(`Looking up student data for studentId: ${studentId}`);
+                const studentSnapshot = await db.collection("students")
+                    .where("studentId", "==", studentId)
+                    .limit(1)
+                    .get();
+                if (!studentSnapshot.empty) {
+                    studentData = studentSnapshot.docs[0].data();
+                    console.log(`Found student: ${studentData.firstName} ${studentData.lastName}`);
+                }
+                else {
+                    console.log(`No student found with studentId: ${studentId}`);
+                }
+            }
+            catch (studentLookupError) {
+                console.error("Error looking up student:", studentLookupError);
+            }
+        }
         // Add to nested structure (for Android compatibility)
-        const nestedScanData = Object.assign(Object.assign({}, scanRecord), { eventId: actualEventId, symbology: scanRecord.symbology || "QR_CODE", studentId: scanRecord.studentId || scanRecord.code, deviceId: scanRecord.deviceId || "", synced: scanRecord.synced || false, processed: scanRecord.processed || false, metadata: scanRecord.metadata || {} });
+        const nestedScanData = Object.assign(Object.assign({}, scanRecord), { eventId: actualEventId, symbology: scanRecord.symbology || "QR_CODE", studentId: studentId, deviceId: scanRecord.deviceId || "", synced: scanRecord.synced || false, processed: studentData ? true : (scanRecord.processed || false), verified: studentData ? true : (scanRecord.processed || false), 
+            // Add student enrichment data
+            firstName: (studentData === null || studentData === void 0 ? void 0 : studentData.firstName) || "", lastName: (studentData === null || studentData === void 0 ? void 0 : studentData.lastName) || "", email: (studentData === null || studentData === void 0 ? void 0 : studentData.email) || "", fullName: studentData ? `${studentData.firstName} ${studentData.lastName}` : "", metadata: scanRecord.metadata || {} });
         await db.collection("lists")
             .doc(actualEventId)
             .collection("scans")
             .doc(scanRecord.id)
             .set(nestedScanData);
-        // Add to flat structure (for admin portal compatibility)
+        // Add to flat structure (for admin portal compatibility) - WITH ENRICHMENT
         const flatScanData = {
             code: scanRecord.code,
             timestamp: scanRecord.timestamp.seconds ?
@@ -243,10 +267,16 @@ exports.addScanRecord = functions.runWith({ invoker: 'public' }).https.onRequest
             listId: actualEventId,
             eventId: actualEventId,
             deviceId: scanRecord.deviceId || "",
-            verified: scanRecord.processed || false,
+            verified: studentData ? true : (scanRecord.processed || false),
+            processed: studentData ? true : (scanRecord.processed || false),
             symbology: scanRecord.symbology || "QR_CODE",
-            studentId: scanRecord.studentId || scanRecord.code,
+            studentId: studentId,
             synced: scanRecord.synced || false,
+            // CRITICAL: Add enriched student data for admin portal
+            firstName: (studentData === null || studentData === void 0 ? void 0 : studentData.firstName) || "",
+            lastName: (studentData === null || studentData === void 0 ? void 0 : studentData.lastName) || "",
+            email: (studentData === null || studentData === void 0 ? void 0 : studentData.email) || "",
+            fullName: studentData ? `${studentData.firstName} ${studentData.lastName}` : "",
             metadata: scanRecord.metadata || {},
         };
         await db.collection("scans").doc(scanRecord.id).set(flatScanData);

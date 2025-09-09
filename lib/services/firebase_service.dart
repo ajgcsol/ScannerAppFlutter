@@ -408,4 +408,56 @@ class FirebaseService {
         return ExportFormat.textDelimited;
     }
   }
+
+  Future<Event> updateEvent(Event event) async {
+    debugPrint('🔥 Updating event: ${event.id}');
+
+    try {
+      final response = await _dio.put(
+        '$_baseUrl/updateEvent',
+        data: {
+          'id': event.id,
+          'eventNumber': event.eventNumber,
+          'name': event.name,
+          'description': event.description,
+          'location': event.location,
+          'date': event.date.toIso8601String(),
+          'isActive': event.isActive,
+          'isCompleted': event.isCompleted,
+          'completedAt': event.completedAt?.toIso8601String(),
+          'exportFormat': event.exportFormat.name.toUpperCase(),
+        },
+      );
+
+      if (response.statusCode == 200) {
+        debugPrint('🔥 Event updated successfully');
+        final updatedEventData = response.data as Map<String, dynamic>;
+        
+        return Event(
+          id: updatedEventData['id'],
+          eventNumber: updatedEventData['eventNumber'],
+          name: updatedEventData['name'],
+          description: updatedEventData['description'] ?? '',
+          date: DateTime.parse(updatedEventData['date']),
+          location: updatedEventData['location'] ?? '',
+          isActive: updatedEventData['isActive'] ?? true,
+          isCompleted: updatedEventData['isCompleted'] ?? false,
+          completedAt: updatedEventData['completedAt'] != null 
+            ? DateTime.parse(updatedEventData['completedAt']) 
+            : null,
+          createdAt: DateTime.parse(updatedEventData['createdAt']),
+          createdBy: updatedEventData['createdBy'] ?? '',
+          exportFormat: _parseExportFormat(updatedEventData['exportFormat']),
+        );
+      } else {
+        throw Exception('Failed to update event: ${response.statusCode}');
+      }
+    } on DioException catch (e) {
+      debugPrint('🔥 DioException updating event: ${e.response?.data}');
+      throw Exception('Network error updating event: ${e.message}');
+    } catch (e) {
+      debugPrint('🔥 Error updating event: $e');
+      rethrow;
+    }
+  }
 }

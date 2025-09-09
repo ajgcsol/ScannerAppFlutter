@@ -316,4 +316,28 @@ class ScannerService {
       }
     }
   }
+
+  Future<Event> updateEvent(Event event) async {
+    debugPrint('📱 UPDATE_EVENT: Updating event ${event.name} (${event.id})');
+
+    try {
+      // Update event locally first
+      await _databaseService.updateEvent(event);
+      debugPrint('📱 UPDATE_EVENT: Event updated locally');
+
+      // Try to update remotely if online
+      if (_syncService.currentStatus.isOnline) {
+        await _firebaseService.updateEvent(event);
+        debugPrint('📱 UPDATE_EVENT: Event updated in Firebase');
+      } else {
+        // TODO: Implement event sync queue for offline updates
+        debugPrint('📱 OFFLINE: Event updated locally for later sync: ${event.id}');
+      }
+
+      return event;
+    } catch (e) {
+      debugPrint('📱 ERROR: Failed to update event: $e');
+      rethrow;
+    }
+  }
 }

@@ -132,7 +132,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       );
     });
     
-    await _loadEvents();
+    await loadEvents();
     if (state.currentEvent != null) {
       await _loadScansForCurrentEvent();
       _startPeriodicRefresh();
@@ -148,8 +148,8 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     });
   }
 
-  Future<void> _loadEvents() async {
-    debugPrint('📱 _loadEvents() called');
+  Future<void> loadEvents() async {
+    debugPrint('📱 loadEvents() called');
     final events = await _scannerService.getEvents();
     debugPrint('📱 Loaded ${events.length} events');
     if (events.isNotEmpty) {
@@ -177,19 +177,26 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       
       debugPrint('📱 Setting current event to: ${selectedEvent.name} (id: ${selectedEvent.id}, active: ${selectedEvent.isActive})');
       
-      // Filter available events to show only real events by default (hide sample/test events)
+      // Filter available events to show only real active events by default (hide sample/test/inactive events)
       final filteredEvents = events.where((e) {
         final name = e.name.toLowerCase();
         final id = e.id.toLowerCase();
-        return !name.contains('sample') && 
-               !name.contains('test') &&
-               !name.contains('demo') &&
-               !id.startsWith('event_') &&
-               !id.contains('sample') &&
-               !id.contains('test');
+        
+        // Filter out sample/test events
+        final isSampleEvent = name.contains('sample') || 
+                             name.contains('test') ||
+                             name.contains('demo') ||
+                             name.contains('example') ||
+                             id.startsWith('event_') ||
+                             id.contains('sample') ||
+                             id.contains('test') ||
+                             id.contains('demo');
+        
+        // Only show active, non-sample events by default
+        return !isSampleEvent && e.isActive;
       }).toList();
       
-      // Use filtered events for the available events list, but keep original events if no real events found
+      // Use filtered events for the available events list, but keep all events if no active real events found
       final eventsToShow = filteredEvents.isNotEmpty ? filteredEvents : events;
       state = state.copyWith(availableEvents: eventsToShow, currentEvent: selectedEvent);
     } else {
@@ -229,7 +236,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
   }
   
   List<Scan> _mergeScansWithDeduplication(List<Scan> databaseScans, List<Scan> existingScans) {
-    // Use a Map to deduplicate by studentId + timestamp combination
+    // Use a Map to deduplicate by studentId + timestamp combination for exact matches
     final Map<String, Scan> scanMap = {};
     
     // Add database scans first (they are the source of truth)
@@ -470,6 +477,62 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     debugPrint('🔍 MANUAL_SCAN: addManualScan completed successfully with ${updatedScans.length} scans');
   }
 
+  Future<void> completeEvent() async {
+    debugPrint('📱 COMPLETE_EVENT: completeEvent called');
+    if (state.currentEvent == null) {
+      debugPrint('📱 COMPLETE_EVENT: ERROR - currentEvent is null');
+      return;
+    }
+
+    final currentEvent = state.currentEvent!;
+    debugPrint('📱 COMPLETE_EVENT: Completing event ${currentEvent.name} (${currentEvent.id})');
+
+    try {
+      // Update the event to mark it as completed
+      final completedEvent = currentEvent.copyWith(
+        isCompleted: true,
+        completedAt: DateTime.now(),
+      );
+
+      // Update the event via the scanner service
+      await _scannerService.updateEvent(completedEvent);
+
+      // Update the current event in state
+      state = state.copyWith(currentEvent: completedEvent);
+
+      debugPrint('📱 COMPLETE_EVENT: Event marked as completed successfully');
+    } catch (e) {
+      debugPrint('📱 COMPLETE_EVENT: Failed to complete event: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> reopenEvent(Event event) async {
+    debugPrint('📱 REOPEN_EVENT: reopenEvent called for ${event.name}');
+
+    try {
+      // Update the event to mark it as active and not completed
+      final reopenedEvent = event.copyWith(
+        isActive: true,
+        isCompleted: false,
+        completedAt: null,
+      );
+
+      // Update the event via the scanner service
+      await _scannerService.updateEvent(reopenedEvent);
+
+      // Update the current event in state if it's the same event
+      if (state.currentEvent?.id == event.id) {
+        state = state.copyWith(currentEvent: reopenedEvent);
+      }
+
+      debugPrint('📱 REOPEN_EVENT: Event reopened successfully');
+    } catch (e) {
+      debugPrint('📱 REOPEN_EVENT: Failed to reopen event: $e');
+      rethrow;
+    }
+  }
+
   Future<void> selectEvent(Event event) async {
     debugPrint('📱 selectEvent: Switching to event ${event.name} (${event.id})');
     
@@ -482,6 +545,60 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     state = state.copyWith(isLoading: false);
     
     debugPrint('📱 selectEvent: Event switched successfully, loaded ${state.scans.length} scans');
+  }
+
+  Future<void> refreshCurrentEvent() async {
+    debugPrint('🔄 refreshCurrentEvent: Refreshing current event data');
+    
+    if (state.currentEvent == null) {
+      debugPrint('🔄 refreshCurrentEvent: No current event to refresh');
+      return;
+    }
+    
+    try {
+      // Reload events to check for status changes
+      final events = await _scannerService.getEvents();
+      
+      // Find the current event in the updated list
+      final updatedEvent = events.firstWhere(
+        (e) => e.id == state.currentEvent!.id,
+        orElse: () => state.currentEvent!,
+      );
+      
+      // Check if event was deactivated
+      if (!updatedEvent.isActive && state.currentEvent!.isActive) {
+        debugPrint('⚠️ refreshCurrentEvent: Event was deactivated');
+        // Update state with deactivated event
+        state = state.copyWith(
+          currentEvent: updatedEvent,
+          availableEvents: events.where((e) => e.isActive).toList(),
+        );
+        
+        // Show notification that event was deactivated
+        state = state.copyWith(
+          errorMessage: 'This event has been deactivated. Please select a different event.',
+        );
+        
+        // Clear scans and switch to another active event if available
+        final activeEvents = events.where((e) => e.isActive).toList();
+        if (activeEvents.isNotEmpty) {
+          await selectEvent(activeEvents.first);
+        }
+      } else {
+        // Update current event with latest data
+        state = state.copyWith(
+          currentEvent: updatedEvent,
+          availableEvents: events.where((e) => e.isActive).toList(),
+        );
+        
+        // Reload scans for the current event
+        await _loadScansForCurrentEvent();
+      }
+      
+      debugPrint('🔄 refreshCurrentEvent: Refresh complete');
+    } catch (e) {
+      debugPrint('❌ refreshCurrentEvent: Error refreshing: $e');
+    }
   }
 
   Future<void> createEvent(Event event) async {

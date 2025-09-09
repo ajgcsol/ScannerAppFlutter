@@ -76,6 +76,7 @@ class ScannerState {
   static const _errorMessageSentinel = Object();
   final Event? currentEvent;
   final List<Event> availableEvents;
+  final List<Event> allEvents; // Complete unfiltered list for event selector dialog
   final List<Scan> scans;
   final Student? verifiedStudent;
   final String? errorMessage;
@@ -93,6 +94,7 @@ class ScannerState {
   const ScannerState({
     this.currentEvent,
     this.availableEvents = const [],
+    this.allEvents = const [],
     this.scans = const [],
     this.verifiedStudent,
     this.errorMessage,
@@ -118,6 +120,7 @@ class ScannerState {
   ScannerState copyWith({
     Event? currentEvent,
     List<Event>? availableEvents,
+    List<Event>? allEvents,
     List<Scan>? scans,
     Student? verifiedStudent,
     Object? errorMessage = _errorMessageSentinel, // Use static sentinel to allow null
@@ -135,6 +138,7 @@ class ScannerState {
     return ScannerState(
       currentEvent: currentEvent ?? this.currentEvent,
       availableEvents: availableEvents ?? this.availableEvents,
+      allEvents: allEvents ?? this.allEvents,
       scans: scans ?? this.scans,
       verifiedStudent: verifiedStudent ?? this.verifiedStudent,
       errorMessage: identical(errorMessage, _errorMessageSentinel) ? this.errorMessage : errorMessage as String?,
@@ -252,10 +256,14 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       
       // Use filtered events for the available events list, but keep all events if no active real events found
       final eventsToShow = filteredEvents.isNotEmpty ? filteredEvents : events;
-      state = state.copyWith(availableEvents: eventsToShow, currentEvent: selectedEvent);
+      state = state.copyWith(
+        availableEvents: eventsToShow, 
+        allEvents: events, // Store complete unfiltered list for event selector dialog
+        currentEvent: selectedEvent
+      );
     } else {
       debugPrint('📱 No events found, setting empty list');
-      state = state.copyWith(availableEvents: []);
+      state = state.copyWith(availableEvents: [], allEvents: []);
     }
   }
 
@@ -625,6 +633,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         state = state.copyWith(
           currentEvent: updatedEvent,
           availableEvents: events.where((e) => e.isActive).toList(),
+          allEvents: events,
         );
         
         // Show notification that event was deactivated
@@ -642,6 +651,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         state = state.copyWith(
           currentEvent: updatedEvent,
           availableEvents: events.where((e) => e.isActive).toList(),
+          allEvents: events,
         );
         
         // Force clear ALL caches and reload scans to ensure we get fresh data

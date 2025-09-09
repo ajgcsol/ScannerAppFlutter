@@ -80,7 +80,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
         showDialog(
           context: context,
           builder: (context) => EventSelectorDialog(
-            events: next.availableEvents,
+            events: next.allEvents,
             onEventSelected: (event) {
               Navigator.of(context).pop();
               _isEventSelectorShowing = false;

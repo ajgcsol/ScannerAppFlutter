@@ -208,22 +208,9 @@ class ScannerService {
     debugPrint('📱 OFFLINE-FIRST: Saving scan to local database');
     await _databaseService.insertScan(scanRecord);
     
-    // Try to sync to Firebase if online
-    if (_syncService.currentStatus.isOnline) {
-      try {
-        debugPrint('📱 ONLINE: Attempting to sync scan to Firebase');
-        await _firebaseService.addScanRecord(scanRecord);
-        
-        // Mark as synced in local database
-        await _databaseService.markScanAsSynced(scanRecord.id);
-        debugPrint('📱 ONLINE: Scan synced successfully');
-      } catch (e) {
-        debugPrint('📱 SYNC_ERROR: Failed to sync scan, will retry later: $e');
-        // Scan remains in local database as unsynced and will be synced later
-      }
-    } else {
-      debugPrint('📱 OFFLINE: Device is offline, scan saved locally for later sync');
-    }
+    // Don't sync immediately - let the sync service handle all syncing
+    // This prevents double-syncing issues where the same scan gets sent twice
+    debugPrint('📱 SCAN_SAVED: Scan saved locally, will be synced by sync service');
     
     // Invalidate cache to show fresh data
     _scansCache.remove(eventId);

@@ -2,7 +2,7 @@ name: insession_flutter
 description: "InSession - Charleston Law Event Scanner (Flutter iOS Port)"
 publish_to: 'none' # Private package
 
-version: 1.0.0+1
+version: 1.0.0+2
 
 environment:
   sdk: ^3.5.3

@@ -148,19 +148,16 @@ class ScannerService {
         );
       }).toList();
       
-      // If online, also try to get latest from Firebase
+      // If online, use Firebase as primary source of truth
       if (_syncService.currentStatus.isOnline) {
         try {
-          debugPrint('🔍 Fetching latest scan records from Firebase');
+          debugPrint('🔍 Fetching latest scan records from Firebase (primary source)');
           final firebaseScans = await _firebaseService.getScanRecordsOnce(
             eventId: eventId, 
             eventNumber: eventNumber
           );
           
-          // Merge with local scans (Firebase takes precedence for duplicates)
-          final firebaseStudentIds = firebaseScans.map((s) => s.studentId ?? s.code).toSet();
-          final localOnlyScans = scans.where((s) => !firebaseStudentIds.contains(s.studentId)).toList();
-          
+          // Use Firebase as primary source, only add recent unsynced local scans
           scans = firebaseScans.map((record) {
             final student = studentMap[record.studentId ?? record.code];
             return Scan(
@@ -171,8 +168,26 @@ class ScannerService {
             );
           }).toList();
           
-          // Add local-only scans
-          scans.addAll(localOnlyScans);
+          // Only add local scans that are very recent and unsynced (last 5 minutes)
+          final recentCutoff = DateTime.now().subtract(const Duration(minutes: 5));
+          final recentLocalScans = localScans
+              .where((record) => 
+                  record.synced == false && 
+                  record.timestamp.isAfter(recentCutoff) &&
+                  !firebaseScans.any((fs) => fs.studentId == record.studentId || fs.code == record.studentId))
+              .map((record) {
+                final student = studentMap[record.studentId ?? record.code];
+                return Scan(
+                  studentId: record.studentId ?? record.code,
+                  timestamp: record.timestamp,
+                  studentName: student?.fullName ?? 'Unknown Student',
+                  studentEmail: student?.email ?? '',
+                );
+              });
+          
+          scans.addAll(recentLocalScans);
+          
+          debugPrint('🔍 Using Firebase as primary source: ${firebaseScans.length} Firebase + ${recentLocalScans.length} recent local scans');
         } catch (e) {
           debugPrint('🔍 Failed to fetch from Firebase, using local data: $e');
         }

@@ -2,10 +2,11 @@
 
 # ci_post_clone.sh
 # Xcode Cloud script to set up Flutter environment
+# Version: 2.0 - Optimized for Xcode Cloud
 
 set -e
 
-echo "🔥 Starting ci_post_clone.sh..."
+echo "🔥 Starting ci_post_clone.sh v2.0..."
 
 # Navigate to project root first (we're currently in ios/ci_scripts/)
 echo "🔍 DEBUG: Navigating to project root..."

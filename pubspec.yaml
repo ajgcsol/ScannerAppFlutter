@@ -20,13 +20,11 @@ dependencies:
   riverpod: ^2.4.9
   flutter_riverpod: ^2.4.9
   
-  # Firebase Integration (HTTP only for iOS Xcode 16 compatibility)
-  # firebase_core: ^3.15.1  # Temporarily disabled
-  # cloud_firestore: ^5.5.2  # Temporarily disabled
-  # firebase_auth: ^4.15.3  # Temporarily disabled due to web compatibility
-  # firebase_storage: ^11.5.6  # Temporarily disabled
-  # firebase_analytics: ^10.7.4  # Temporarily disabled
-  # firebase_crashlytics: ^3.4.8  # Temporarily disabled
+  # Firebase Integration 
+  firebase_core: ^2.24.2
+  cloud_firestore: ^4.13.6
+  firebase_auth: ^4.15.3
+  firebase_storage: ^11.5.6
   
   # Camera & Barcode Scanning
   camera: ^0.10.5+9

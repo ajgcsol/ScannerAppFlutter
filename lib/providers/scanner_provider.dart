@@ -8,6 +8,7 @@ import '../services/scanner_service.dart';
 import '../services/sync_service.dart';
 import '../services/firebase_service.dart';
 import '../services/queue_sync_service.dart';
+import '../services/database_service.dart';
 
 // Scan result from camera or manual input
 class ScanResult {
@@ -704,10 +705,11 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     
     try {
       // Get previous state from local database
-      final localScans = await _scannerService._databaseService.getScansForEvent(eventId);
+      final databaseService = DatabaseService();
+      final localScans = await databaseService.getScansForEvent(eventId);
       
-      final localStudentIds = localScans.map((s) => s.studentId).toSet();
-      final firebaseStudentIds = currentFirebaseScans.map((s) => s.studentId ?? s.code).toSet();
+      final localStudentIds = localScans.map((s) => s.studentId ?? s.code).whereType<String>().toSet();
+      final firebaseStudentIds = currentFirebaseScans.map((s) => s.studentId ?? s.code).whereType<String>().toSet();
       
       // Find scans that were deleted from Firebase
       final deletedIds = localStudentIds.difference(firebaseStudentIds);
@@ -717,7 +719,9 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         
         // Store delete operations with current timestamp
         for (final deletedId in deletedIds) {
-          await _queueCloudDelete(eventId, deletedId, DateTime.now());
+          if (deletedId.isNotEmpty) {
+            await _queueCloudDelete(eventId, deletedId, DateTime.now());
+          }
         }
       }
     } catch (e) {

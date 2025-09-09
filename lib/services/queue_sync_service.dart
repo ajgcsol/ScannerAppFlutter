@@ -89,7 +89,8 @@ class QueueSyncService {
     
     // Start with Firebase scans
     for (final scan in firebaseScans) {
-      finalScans[scan.studentId] = scan;
+      final studentId = scan.studentId ?? scan.code;
+      finalScans[studentId] = scan;
     }
     
     // Apply local adds (if timestamp is newer or scan doesn't exist)
@@ -103,7 +104,6 @@ class QueueSyncService {
           code: addOp.studentId,
           studentId: addOp.studentId,
           timestamp: addOp.timestamp,
-          listId: addOp.eventId,
           eventId: addOp.eventId,
           deviceId: addOp.data?['deviceId'] ?? '',
           symbology: addOp.data?['symbology'] ?? '',
@@ -129,7 +129,7 @@ class QueueSyncService {
     
     // Convert to Scan objects
     final scans = finalScans.values.map((record) => Scan(
-      studentId: record.studentId,
+      studentId: record.studentId ?? record.code,
       timestamp: record.timestamp,
       studentName: '', // Will be enriched later
       studentEmail: '',
@@ -148,8 +148,8 @@ class QueueSyncService {
     
     // Get previous Firebase state from local cache/database
     final previousScans = await _databaseService.getScansForEvent(eventId);
-    final previousIds = previousScans.map((s) => s.studentId).toSet();
-    final currentIds = currentFirebaseScans.map((s) => s.studentId).toSet();
+    final previousIds = previousScans.map((s) => s.studentId ?? s.code).whereType<String>().toSet();
+    final currentIds = currentFirebaseScans.map((s) => s.studentId ?? s.code).whereType<String>().toSet();
     
     // Find deleted IDs
     final deletedIds = previousIds.difference(currentIds);
@@ -220,7 +220,6 @@ class QueueSyncService {
           code: addOp.studentId,
           studentId: addOp.studentId,
           timestamp: addOp.timestamp,
-          listId: addOp.eventId,
           eventId: addOp.eventId,
           deviceId: addOp.data?['deviceId'] ?? '',
           symbology: addOp.data?['symbology'] ?? '',
@@ -228,7 +227,7 @@ class QueueSyncService {
         );
         
         // Upload to Firebase
-        await _firebaseService.saveScanRecord(scanRecord);
+        await _firebaseService.addScanRecord(scanRecord);
         
         // Mark as synced
         final syncedOp = addOp.copyWith(synced: true);

@@ -6,6 +6,7 @@ import '../models/student.dart';
 import '../models/scan.dart';
 import '../services/scanner_service.dart';
 import '../services/sync_service.dart';
+import '../services/firebase_service.dart';
 
 // Scan result from camera or manual input
 class ScanResult {
@@ -609,25 +610,55 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     
     if (state.currentEvent == null) return;
     
-    // Get fresh scans directly from Firebase (bypass cache)
-    final firebaseScans = await _scannerService.getScansForEvent(
-      state.currentEvent!.id,
-      eventNumber: state.currentEvent!.eventNumber,
-    );
-    
-    debugPrint('🔄 _forceReloadScansFromFirebase: Got ${firebaseScans.length} scans from Firebase');
-    
-    // Update state with ONLY Firebase scans (ignore existing UI scans)
-    state = state.copyWith(
-      scans: firebaseScans,
-      // Preserve dialog states
-      showStudentDialog: state.showStudentDialog,
-      showDuplicateDialog: state.showDuplicateDialog,
-      verifiedStudent: state.verifiedStudent,
-      errorMessage: state.errorMessage,
-    );
-    
-    debugPrint('🔄 _forceReloadScansFromFirebase: Updated UI with ${firebaseScans.length} scans');
+    try {
+      // Force clear the cache first
+      _scannerService.clearCacheForEvent(state.currentEvent!.id);
+      
+      // Get ONLY Firebase scans (no local database merge)
+      final firebaseService = FirebaseService.instance;
+      final firebaseScans = await firebaseService.getScanRecordsOnce(
+        eventId: state.currentEvent!.id,
+        eventNumber: state.currentEvent!.eventNumber,
+      );
+      
+      debugPrint('🔄 _forceReloadScansFromFirebase: Got ${firebaseScans.length} raw scans from Firebase');
+      
+      // Get students for name mapping
+      final students = await _scannerService.getStudents();
+      final studentMap = {for (var s in students) s.studentId: s};
+      
+      // Convert Firebase scan records to Scan models
+      final scans = firebaseScans.map((record) {
+        final student = studentMap[record.studentId ?? record.code];
+        return Scan(
+          studentId: record.studentId ?? record.code,
+          timestamp: record.timestamp,
+          studentName: student?.fullName ?? 'Unknown Student',
+          studentEmail: student?.email ?? '',
+        );
+      }).toList();
+      
+      // Sort by timestamp descending (most recent first)
+      scans.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      
+      debugPrint('🔄 _forceReloadScansFromFirebase: Converted to ${scans.length} UI scans');
+      
+      // Update state with ONLY Firebase scans (ignore existing UI scans)
+      state = state.copyWith(
+        scans: scans,
+        // Preserve dialog states
+        showStudentDialog: state.showStudentDialog,
+        showDuplicateDialog: state.showDuplicateDialog,
+        verifiedStudent: state.verifiedStudent,
+        errorMessage: state.errorMessage,
+      );
+      
+      debugPrint('🔄 _forceReloadScansFromFirebase: Updated UI with ${scans.length} scans');
+    } catch (e) {
+      debugPrint('❌ _forceReloadScansFromFirebase: Error: $e');
+      // Fall back to regular reload if Firebase direct access fails
+      await _loadScansForCurrentEvent();
+    }
   }
 
   Future<void> createEvent(Event event) async {

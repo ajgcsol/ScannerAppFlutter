@@ -32,11 +32,7 @@ class ScanRecord {
   
   Map<String, dynamic> toJson() {
     final json = _$ScanRecordToJson(this);
-    // Keep both eventId and listId for compatibility
-    if (json.containsKey('eventId') && json['eventId'] != null) {
-      json['listId'] = json['eventId'];
-      // Don't remove eventId - Firebase Functions API expects it
-    }
+    // Only send eventId, not both eventId and listId to prevent duplicates
     return json;
   }
 

@@ -28,10 +28,19 @@ flutter precache --ios
 echo "📦 Installing Dart dependencies..."
 flutter pub get || { echo "❌ flutter pub get failed"; exit 1; }
 
-# Install iOS dependencies
+# Install iOS dependencies with CDN fallback
 echo "🍎 Installing iOS dependencies..."
 cd ios
-pod install --repo-update || { echo "❌ pod install failed"; exit 1; }
+
+# First try with CDN, then fallback to git repo on failure
+echo "🍎 Attempting pod install with CDN..."
+if ! pod install --repo-update; then
+    echo "⚠️  CDN failed, falling back to git repo..."
+    pod repo remove trunk || true
+    pod repo add trunk https://github.com/CocoaPods/Specs.git --shallow
+    pod install --repo-update
+fi
+
 cd ..
 
 echo "✅ ci_post_clone.sh completed successfully!"

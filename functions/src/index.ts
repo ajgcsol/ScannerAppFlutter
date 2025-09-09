@@ -146,84 +146,73 @@ export const getScanRecords = functions.runWith({invoker: 'public'}).https.onReq
       }
     }
     
-    console.log(`Querying scans with listId: ${queryValue}`);
+    console.log(`Querying scans from BOTH structures with eventId: ${queryValue}`);
     
-    // For backwards compatibility, also try querying with the original eventNumber
-    const alternativeQueryValue = paramValue; // Original eventNumber/eventId parameter
-    console.log(`Alternative query value: ${alternativeQueryValue}`);
-    
-    // First try with orderBy, if it fails due to missing index, get without ordering
-    let scans: any[] = [];
+    // Query BOTH structures like the admin portal does
+    let allScans: any[] = [];
     
     try {
-      const scansSnapshot = await db.collection("scans")
-        .where("listId", "==", queryValue)
-        .orderBy("timestamp", "desc")
-        .get();
-      
-      scans = scansSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-    } catch (indexError: any) {
-      console.log("Index error, trying without orderBy:", indexError.message);
-      // Fallback: get without orderBy and sort in memory
-      const scansSnapshot = await db.collection("scans")
+      console.log("Querying flat structure (scans collection)...");
+      const flatScansSnapshot = await db.collection("scans")
         .where("listId", "==", queryValue)
         .get();
       
-      scans = scansSnapshot.docs.map((doc) => ({
+      const flatScans = flatScansSnapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
+        source: "flat"
       }));
       
-      // Sort by timestamp in memory
-      scans.sort((a, b) => {
-        const timeA = a.timestamp?.seconds || a.timestamp || 0;
-        const timeB = b.timestamp?.seconds || b.timestamp || 0;
-        return timeB - timeA; // Descending order
-      });
+      console.log(`Found ${flatScans.length} scans in flat structure`);
+      allScans.push(...flatScans);
+      
+    } catch (flatError: any) {
+      console.log("Error querying flat structure:", flatError.message);
     }
 
-    // If no scans found and queryValue is different from alternativeQueryValue, try the alternative
-    if (scans.length === 0 && queryValue !== alternativeQueryValue) {
-      console.log(`No scans found with listId: ${queryValue}, trying alternative: ${alternativeQueryValue}`);
+    try {
+      console.log("Querying nested structure (lists collection)...");
+      const nestedScansSnapshot = await db.collection("lists")
+        .doc(queryValue)
+        .collection("scans")
+        .get();
       
-      try {
-        const alternativeSnapshot = await db.collection("scans")
-          .where("listId", "==", alternativeQueryValue)
-          .orderBy("timestamp", "desc")
-          .get();
-        
-        scans = alternativeSnapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        
-        console.log(`Found ${scans.length} scans with alternative listId: ${alternativeQueryValue}`);
-      } catch (altIndexError: any) {
-        console.log("Alternative query index error, trying without orderBy");
-        const alternativeSnapshot = await db.collection("scans")
-          .where("listId", "==", alternativeQueryValue)
-          .get();
-        
-        scans = alternativeSnapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        
-        // Sort by timestamp in memory
-        scans.sort((a, b) => {
-          const timeA = a.timestamp?.seconds || a.timestamp || 0;
-          const timeB = b.timestamp?.seconds || b.timestamp || 0;
-          return timeB - timeA; // Descending order
-        });
-        
-        console.log(`Found ${scans.length} scans with alternative listId (no orderBy): ${alternativeQueryValue}`);
+      const nestedScans = nestedScansSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+        source: "nested"
+      }));
+      
+      console.log(`Found ${nestedScans.length} scans in nested structure`);
+      allScans.push(...nestedScans);
+      
+    } catch (nestedError: any) {
+      console.log("Error querying nested structure:", nestedError.message);
+    }
+
+    // Remove duplicates by ID (prefer flat structure data if both exist)
+    const uniqueScans = new Map();
+    allScans.forEach(scan => {
+      const existing = uniqueScans.get(scan.id);
+      if (!existing || existing.source === "nested") {
+        uniqueScans.set(scan.id, scan);
       }
-    }
+    });
+    
+    const scans = Array.from(uniqueScans.values()).map(scan => {
+      // Remove the source field from final output
+      const { source, ...cleanScan } = scan;
+      return cleanScan;
+    });
+    
+    // Sort by timestamp in memory (descending order)
+    scans.sort((a, b) => {
+      const timeA = a.timestamp?.seconds || a.timestamp || 0;
+      const timeB = b.timestamp?.seconds || b.timestamp || 0;
+      return timeB - timeA;
+    });
 
-    console.log(`Found ${scans.length} scans for parameter: ${paramValue} (queried with listId: ${queryValue})`);
+    console.log(`Found ${scans.length} total scans for parameter: ${paramValue} (queried eventId: ${queryValue})`);
     res.status(200).json(scans);
   } catch (error) {
     console.error("Error getting scan records:", error);
@@ -877,8 +866,8 @@ export const bulkDeleteScanRecords = functions.runWith({invoker: 'public'}).http
         // Delete from flat structure (scans collection)
         await db.collection("scans").doc(recordId).delete();
         
-        // Delete from nested structure (lists collection under events)
-        await db.collection("events").doc(eventId).collection("lists").doc(recordId).delete();
+        // Delete from nested structure (lists collection)
+        await db.collection("lists").doc(eventId).collection("scans").doc(recordId).delete();
         
         deletedCount++;
         console.log(`Deleted scan record: ${recordId}`);

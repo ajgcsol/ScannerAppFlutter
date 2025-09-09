@@ -591,14 +591,43 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
           availableEvents: events.where((e) => e.isActive).toList(),
         );
         
-        // Reload scans for the current event
-        await _loadScansForCurrentEvent();
+        // Clear local cache and reload scans to ensure we get fresh data
+        _scannerService.clearCacheForEvent(state.currentEvent!.id);
+        
+        // Force reload scans from Firebase (source of truth)
+        await _forceReloadScansFromFirebase();
       }
       
       debugPrint('🔄 refreshCurrentEvent: Refresh complete');
     } catch (e) {
       debugPrint('❌ refreshCurrentEvent: Error refreshing: $e');
     }
+  }
+
+  Future<void> _forceReloadScansFromFirebase() async {
+    debugPrint('🔄 _forceReloadScansFromFirebase: Starting fresh reload');
+    
+    if (state.currentEvent == null) return;
+    
+    // Get fresh scans directly from Firebase (bypass cache)
+    final firebaseScans = await _scannerService.getScansForEvent(
+      state.currentEvent!.id,
+      eventNumber: state.currentEvent!.eventNumber,
+    );
+    
+    debugPrint('🔄 _forceReloadScansFromFirebase: Got ${firebaseScans.length} scans from Firebase');
+    
+    // Update state with ONLY Firebase scans (ignore existing UI scans)
+    state = state.copyWith(
+      scans: firebaseScans,
+      // Preserve dialog states
+      showStudentDialog: state.showStudentDialog,
+      showDuplicateDialog: state.showDuplicateDialog,
+      verifiedStudent: state.verifiedStudent,
+      errorMessage: state.errorMessage,
+    );
+    
+    debugPrint('🔄 _forceReloadScansFromFirebase: Updated UI with ${firebaseScans.length} scans');
   }
 
   Future<void> createEvent(Event event) async {

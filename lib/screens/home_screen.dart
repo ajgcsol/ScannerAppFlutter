@@ -86,6 +86,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               _isEventSelectorShowing = false;
               scannerNotifier.selectEvent(event);
             },
+            onEventCreated: (event) async {
+              Navigator.of(context).pop();
+              _isEventSelectorShowing = false;
+              try {
+                await scannerNotifier.createEvent(event);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Event "${event.name}" created successfully!'),
+                      backgroundColor: Colors.green,
+                      duration: const Duration(seconds: 3),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to create event: ${e.toString().replaceAll('Exception: ', '')}'),
+                      backgroundColor: Colors.red,
+                      duration: const Duration(seconds: 5),
+                    ),
+                  );
+                }
+              }
+            },
             onDismiss: () {
               Navigator.of(context).pop();
               _isEventSelectorShowing = false;

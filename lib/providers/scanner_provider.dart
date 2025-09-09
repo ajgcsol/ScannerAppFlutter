@@ -201,15 +201,23 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
   Future<void> _loadScansForCurrentEvent() async {
     debugPrint('📊 _loadScansForCurrentEvent: Starting with error message: ${state.errorMessage}');
     if (state.currentEvent == null) return;
-    final scans = await _scannerService.getScansForEvent(
+    final databaseScans = await _scannerService.getScansForEvent(
       state.currentEvent!.id,
       eventNumber: state.currentEvent!.eventNumber,
     );
+    
+    debugPrint('📊 _loadScansForCurrentEvent: Got ${databaseScans.length} scans from database, current UI has ${state.scans.length} scans');
+    
+    // Merge database scans with existing UI scans, removing duplicates
+    final mergedScans = _mergeScansWithDeduplication(databaseScans, state.scans);
+    
     debugPrint('📊 _loadScansForCurrentEvent: Before state update, error message: ${state.errorMessage}');
     debugPrint('📊 _loadScansForCurrentEvent: Before state update, showStudentDialog: ${state.showStudentDialog}');
+    debugPrint('📊 _loadScansForCurrentEvent: Merged to ${mergedScans.length} deduplicated scans');
+    
     // Preserve dialog states when updating scans
     state = state.copyWith(
-      scans: scans,
+      scans: mergedScans,
       // Explicitly preserve dialog states
       showStudentDialog: state.showStudentDialog,
       showDuplicateDialog: state.showDuplicateDialog,
@@ -218,6 +226,31 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     );
     debugPrint('📊 _loadScansForCurrentEvent: After state update, error message: ${state.errorMessage}');
     debugPrint('📊 _loadScansForCurrentEvent: After state update, showStudentDialog: ${state.showStudentDialog}');
+  }
+  
+  List<Scan> _mergeScansWithDeduplication(List<Scan> databaseScans, List<Scan> existingScans) {
+    // Use a Map to deduplicate by studentId + timestamp combination
+    final Map<String, Scan> scanMap = {};
+    
+    // Add database scans first (they are the source of truth)
+    for (final scan in databaseScans) {
+      final key = '${scan.studentId}_${scan.timestamp.millisecondsSinceEpoch}';
+      scanMap[key] = scan;
+    }
+    
+    // Add existing UI scans that aren't already in database (optimistic updates not yet persisted)
+    for (final scan in existingScans) {
+      final key = '${scan.studentId}_${scan.timestamp.millisecondsSinceEpoch}';
+      if (!scanMap.containsKey(key)) {
+        scanMap[key] = scan;
+      }
+    }
+    
+    // Convert back to list and sort by timestamp descending
+    final mergedScans = scanMap.values.toList();
+    mergedScans.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    
+    return mergedScans;
   }
 
   Future<void> triggerScan() async {
@@ -449,6 +482,46 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     state = state.copyWith(isLoading: false);
     
     debugPrint('📱 selectEvent: Event switched successfully, loaded ${state.scans.length} scans');
+  }
+
+  Future<void> createEvent(Event event) async {
+    try {
+      debugPrint('📱 CREATE_EVENT: Creating event ${event.name} (#${event.eventNumber})');
+      
+      state = state.copyWith(isLoading: true);
+      
+      // Create the event using the scanner service
+      final createdEvent = await _scannerService.createEvent(event);
+      
+      // Refresh the available events list to include the new event
+      final updatedEvents = await _scannerService.getEvents();
+      
+      // Update state with the new event and select it
+      state = state.copyWith(
+        availableEvents: updatedEvents,
+        currentEvent: createdEvent,
+        isLoading: false,
+        scans: [], // Clear scans for the new event
+        showEventSelector: false,
+      );
+      
+      // Load scans for the new event (if any)
+      await _loadScansForCurrentEvent();
+      _startPeriodicRefresh(); // Start refresh timer for the new event
+      
+      debugPrint('📱 CREATE_EVENT: Event created and selected successfully');
+    } catch (e) {
+      debugPrint('📱 CREATE_EVENT: Failed to create event: $e');
+      
+      // Show error to user but don't change loading state to false yet
+      // The dialog will handle that
+      state = state.copyWith(
+        errorMessage: 'Failed to create event: ${e.toString().replaceAll('Exception: ', '')}',
+        isLoading: false,
+      );
+      
+      rethrow; // Let the UI handle the error dialog
+    }
   }
 }
 

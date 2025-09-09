@@ -275,4 +275,45 @@ class ScannerService {
     _lastCacheTime = null;
     debugPrint('🔍 Cache cleared for event: $eventId');
   }
+  
+  // Create a new event
+  Future<Event> createEvent(Event event) async {
+    try {
+      debugPrint('📱 Creating event: ${event.name} (#${event.eventNumber})');
+      
+      if (_syncService.currentStatus.isOnline) {
+        // Create event on Firebase
+        debugPrint('📱 ONLINE: Creating event on Firebase');
+        final createdEvent = await _firebaseService.createEvent(event);
+        
+        // Save to local database for offline access
+        await _databaseService.insertEvent(createdEvent);
+        
+        debugPrint('📱 SUCCESS: Event created and saved locally: ${createdEvent.id}');
+        return createdEvent;
+      } else {
+        // Save locally only when offline
+        debugPrint('📱 OFFLINE: Saving event locally only');
+        await _databaseService.insertEvent(event);
+        
+        // Mark for sync when online
+        // TODO: Implement event sync queue for offline creation
+        
+        debugPrint('📱 OFFLINE: Event saved locally for later sync: ${event.id}');
+        return event;
+      }
+    } catch (e) {
+      debugPrint('📱 ERROR: Failed to create event: $e');
+      
+      // Try to save locally as fallback
+      try {
+        await _databaseService.insertEvent(event);
+        debugPrint('📱 FALLBACK: Event saved locally after Firebase error');
+        return event;
+      } catch (localError) {
+        debugPrint('📱 CRITICAL: Failed to save event locally: $localError');
+        rethrow;
+      }
+    }
+  }
 }

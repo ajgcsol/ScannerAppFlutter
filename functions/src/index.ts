@@ -442,3 +442,217 @@ export const migrateScanRecords = functions.runWith({invoker: 'public'}).https.o
   }
 });
 
+// Create Event
+export const createEvent = functions.runWith({invoker: 'public'}).https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  try {
+    const eventData = req.body;
+    
+    if (!eventData.name || !eventData.eventNumber) {
+      res.status(400).json({ error: "Event name and eventNumber are required" });
+      return;
+    }
+
+    console.log(`Creating new event: ${eventData.name} (${eventData.eventNumber})`);
+
+    // Check if event number already exists
+    const existingEventSnapshot = await db.collection("events")
+      .where("eventNumber", "==", Number(eventData.eventNumber))
+      .limit(1)
+      .get();
+    
+    if (!existingEventSnapshot.empty) {
+      res.status(409).json({ 
+        error: `Event number ${eventData.eventNumber} already exists`,
+        conflictField: "eventNumber"
+      });
+      return;
+    }
+
+    // Create the event document
+    const eventDoc = {
+      eventNumber: Number(eventData.eventNumber),
+      name: eventData.name,
+      description: eventData.description || "",
+      date: eventData.date ? admin.firestore.Timestamp.fromDate(new Date(eventData.date)) : admin.firestore.FieldValue.serverTimestamp(),
+      location: eventData.location || "",
+      isActive: eventData.isActive !== undefined ? eventData.isActive : true,
+      isCompleted: false,
+      completedAt: null,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: eventData.createdBy || "mobile_app",
+      customColumns: eventData.customColumns || [],
+      staticValues: eventData.staticValues || {},
+      exportFormat: eventData.exportFormat || "TEXT_DELIMITED",
+    };
+
+    // Add the event to Firestore
+    const docRef = await db.collection("events").add(eventDoc);
+    
+    console.log(`Event created successfully with ID: ${docRef.id}`);
+    
+    // Return the created event with its ID
+    const createdEvent = {
+      id: docRef.id,
+      ...eventDoc,
+      date: eventData.date || new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+
+    res.status(201).json({ 
+      success: true, 
+      event: createdEvent,
+      message: "Event created successfully"
+    });
+  } catch (error) {
+    console.error("Error creating event:", error);
+    res.status(500).json({ error: "Failed to create event" });
+  }
+});
+
+// Fix scan records by enriching them with student data and verification
+export const fixScanRecords = functions.runWith({invoker: 'public'}).https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  try {
+    const { eventNumber } = req.body;
+    
+    if (!eventNumber) {
+      res.status(400).json({ error: "eventNumber is required" });
+      return;
+    }
+
+    console.log(`Starting scan record enrichment for eventNumber: ${eventNumber}`);
+
+    // First, find the actual eventId for this eventNumber
+    const eventsSnapshot = await db.collection("events")
+      .where("eventNumber", "==", Number(eventNumber))
+      .limit(1)
+      .get();
+    
+    if (eventsSnapshot.empty) {
+      res.status(404).json({ error: `No event found with eventNumber: ${eventNumber}` });
+      return;
+    }
+
+    const actualEventId = eventsSnapshot.docs[0].id;
+    console.log(`Found eventId: ${actualEventId} for eventNumber: ${eventNumber}`);
+
+    // Get all students for lookup
+    const studentsSnapshot = await db.collection("students").get();
+    const studentLookup = new Map();
+    studentsSnapshot.docs.forEach((doc) => {
+      const student = doc.data();
+      studentLookup.set(student.studentId, {
+        firstName: student.firstName,
+        lastName: student.lastName,
+        email: student.email,
+        id: doc.id
+      });
+    });
+
+    console.log(`Loaded ${studentLookup.size} students for lookup`);
+
+    // Find all scan records for this event that need enrichment
+    const scansSnapshot = await db.collection("scans")
+      .where("listId", "==", actualEventId)
+      .get();
+
+    console.log(`Found ${scansSnapshot.docs.length} scans to potentially enrich`);
+
+    const batch = db.batch();
+    let enrichedCount = 0;
+
+    scansSnapshot.docs.forEach((doc) => {
+      const scanData = doc.data();
+      const studentId = scanData.studentId || scanData.code;
+      
+      if (studentId && studentLookup.has(studentId)) {
+        const student = studentLookup.get(studentId);
+        
+        console.log(`Enriching scan ${doc.id} for student ${studentId}: ${student.firstName} ${student.lastName}`);
+        
+        // Enrich the scan record with student data and verification
+        batch.update(doc.ref, {
+          verified: true,
+          processed: true,
+          firstName: student.firstName,
+          lastName: student.lastName,
+          email: student.email,
+          fullName: `${student.firstName} ${student.lastName}`,
+          studentId: studentId,
+          listId: actualEventId,
+          eventId: actualEventId
+        });
+        
+        enrichedCount++;
+      } else {
+        console.log(`No student found for scan ${doc.id} with studentId: ${studentId}`);
+      }
+    });
+
+    // Commit the batch update
+    if (enrichedCount > 0) {
+      await batch.commit();
+      console.log(`Successfully enriched ${enrichedCount} scan records with student data`);
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      eventNumber: eventNumber,
+      actualEventId: actualEventId,
+      totalScans: scansSnapshot.docs.length,
+      enrichedCount: enrichedCount 
+    });
+  } catch (error) {
+    console.error("Error enriching scan records:", error);
+    res.status(500).json({ error: "Failed to enrich scan records" });
+  }
+});
+
+// Delete Test Event (temporary function)
+export const deleteTestEvent = functions.runWith({invoker: 'public'}).https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, DELETE, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  try {
+    // Delete the test event
+    await db.collection("events").doc("1756647674290").delete();
+    res.status(200).json({ success: true, message: "Test event deleted" });
+  } catch (error) {
+    console.error("Error deleting test event:", error);
+    res.status(500).json({ error: "Failed to delete test event" });
+  }
+});
+

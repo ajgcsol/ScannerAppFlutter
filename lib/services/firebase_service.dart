@@ -329,4 +329,83 @@ class FirebaseService {
       );
     }
   }
+
+  // Create a new event
+  Future<Event> createEvent(Event event) async {
+    try {
+      debugPrint('🔥 Creating event: ${event.name} (${event.eventNumber})');
+      
+      final eventData = {
+        'eventNumber': event.eventNumber,
+        'name': event.name,
+        'description': event.description,
+        'date': event.date.toIso8601String(),
+        'location': event.location,
+        'isActive': event.isActive,
+        'isCompleted': event.isCompleted,
+        'completedAt': event.completedAt?.toIso8601String(),
+        'createdBy': event.createdBy,
+        'customColumns': event.customColumns.map((col) => col.toJson()).toList(),
+        'staticValues': event.staticValues,
+        'exportFormat': event.exportFormat.toString().split('.').last.toUpperCase(),
+      };
+      
+      final response = await _dio.post('/createEvent', data: eventData);
+      
+      if (response.statusCode == 201) {
+        final responseData = response.data as Map<String, dynamic>;
+        final createdEventData = responseData['event'] as Map<String, dynamic>;
+        
+        debugPrint('🔥 Event created successfully: ${createdEventData['id']}');
+        
+        // Convert the response back to an Event object
+        return Event(
+          id: createdEventData['id'],
+          eventNumber: createdEventData['eventNumber'],
+          name: createdEventData['name'],
+          description: createdEventData['description'] ?? '',
+          date: DateTime.parse(createdEventData['date']),
+          location: createdEventData['location'] ?? '',
+          isActive: createdEventData['isActive'] ?? true,
+          isCompleted: createdEventData['isCompleted'] ?? false,
+          completedAt: createdEventData['completedAt'] != null 
+            ? DateTime.parse(createdEventData['completedAt']) 
+            : null,
+          createdAt: DateTime.parse(createdEventData['createdAt']),
+          createdBy: createdEventData['createdBy'] ?? '',
+          customColumns: (createdEventData['customColumns'] as List?)
+            ?.map((col) => EventColumn.fromJson(col))
+            .toList() ?? [],
+          staticValues: Map<String, String>.from(createdEventData['staticValues'] ?? {}),
+          exportFormat: _parseExportFormat(createdEventData['exportFormat']),
+        );
+      } else {
+        throw Exception('Failed to create event: ${response.statusCode}');
+      }
+    } on DioException catch (e) {
+      debugPrint('🔥 DioException creating event: ${e.response?.data}');
+      if (e.response?.statusCode == 409) {
+        final errorData = e.response?.data as Map<String, dynamic>?;
+        throw Exception(errorData?['error'] ?? 'Event number already exists');
+      }
+      throw Exception('Network error creating event: ${e.message}');
+    } catch (e) {
+      debugPrint('🔥 Error creating event: $e');
+      rethrow;
+    }
+  }
+
+  ExportFormat _parseExportFormat(String? format) {
+    switch (format?.toUpperCase()) {
+      case 'CSV':
+        return ExportFormat.csv;
+      case 'FIXED_WIDTH':
+        return ExportFormat.fixedWidth;
+      case 'XLSX':
+        return ExportFormat.xlsx;
+      case 'TEXT_DELIMITED':
+      default:
+        return ExportFormat.textDelimited;
+    }
+  }
 }

@@ -60,8 +60,8 @@ class QueueSyncService {
   }
 
   /// Get resolved scans for an event (applies queue operations)
-  Future<List<Scan>> getResolvedScansForEvent(String eventId) async {
-    debugPrint('🔄 QueueSync: Getting resolved scans for event $eventId');
+  Future<List<Scan>> getResolvedScansForEvent(String eventId, {bool bypassLocal = false}) async {
+    debugPrint('🔄 QueueSync: Getting resolved scans for event $eventId (bypassLocal: $bypassLocal)');
     
     // Get base scans from Firebase
     List<ScanRecord> firebaseScans = [];
@@ -70,6 +70,23 @@ class QueueSyncService {
       debugPrint('🔄 QueueSync: Got ${firebaseScans.length} scans from Firebase');
     } catch (e) {
       debugPrint('🔄 QueueSync: Failed to get Firebase scans: $e');
+    }
+    
+    // For manual refresh, use Firebase as single source of truth
+    if (bypassLocal) {
+      debugPrint('🔄 QueueSync: Bypassing local data, using Firebase as single source of truth');
+      final scans = firebaseScans.map((record) => Scan(
+        studentId: record.studentId ?? record.code,
+        timestamp: record.timestamp,
+        studentName: '', // Will be enriched later
+        studentEmail: '',
+      )).toList();
+      
+      // Sort by timestamp descending
+      scans.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      
+      debugPrint('🔄 QueueSync: Resolved to ${scans.length} Firebase-only scans');
+      return scans;
     }
     
     // Get pending local adds for this event

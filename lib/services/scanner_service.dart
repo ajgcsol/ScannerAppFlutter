@@ -276,6 +276,14 @@ class ScannerService {
     debugPrint('🔍 Cache cleared for event: $eventId');
   }
   
+  // Force clear all caches (used for manual sync)
+  void clearAllCaches() {
+    _scansCache.clear();
+    _studentsCache.clear();
+    _lastCacheTime = null;
+    debugPrint('🔍 All caches cleared for manual sync');
+  }
+  
   // Create a new event
   Future<Event> createEvent(Event event) async {
     try {

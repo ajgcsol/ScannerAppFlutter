@@ -644,8 +644,8 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
           availableEvents: events.where((e) => e.isActive).toList(),
         );
         
-        // Clear local cache and reload scans to ensure we get fresh data
-        _scannerService.clearCacheForEvent(state.currentEvent!.id);
+        // Force clear ALL caches and reload scans to ensure we get fresh data
+        _scannerService.clearAllCaches();
         
         // Force reload scans from Firebase (source of truth)
         await _forceReloadScansFromFirebase();
@@ -675,8 +675,8 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       // 2. Detect cloud deletes by comparing with previous state
       await _queueSyncService.detectCloudDeletes(state.currentEvent!.id, currentFirebaseScans);
       
-      // 3. Get resolved scans using queue-based sync service (applies both adds and deletes with timestamps)
-      final resolvedScans = await _queueSyncService.getResolvedScansForEvent(state.currentEvent!.id);
+      // 3. Get resolved scans using Firebase as single source of truth (bypass local data for manual refresh)
+      final resolvedScans = await _queueSyncService.getResolvedScansForEvent(state.currentEvent!.id, bypassLocal: true);
       
       debugPrint('🔄 _forceReloadScansFromFirebase: Resolved to ${resolvedScans.length} final scans');
       

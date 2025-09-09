@@ -158,8 +158,8 @@ class ScannerService {
           );
           
           // Merge with local scans (Firebase takes precedence for duplicates)
-          final firebaseScanIds = firebaseScans.map((s) => s.id).toSet();
-          final localOnlyScans = scans.where((s) => !firebaseScanIds.contains(s.studentId)).toList();
+          final firebaseStudentIds = firebaseScans.map((s) => s.studentId ?? s.code).toSet();
+          final localOnlyScans = scans.where((s) => !firebaseStudentIds.contains(s.studentId)).toList();
           
           scans = firebaseScans.map((record) {
             final student = studentMap[record.studentId ?? record.code];

@@ -173,8 +173,9 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
   }
 
   Future<void> _initialize() async {
-    // Initialize sync service
+    // Initialize sync services
     await _scannerService.syncService.initialize();
+    await _queueSyncService.initialize();
     
     // Listen to sync status changes
     _syncStatusSubscription = _scannerService.syncStatusStream.listen((syncStatus) {
@@ -672,10 +673,10 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       debugPrint('🔄 _forceReloadScansFromFirebase: Got ${currentFirebaseScans.length} scans from Firebase');
       
       // 2. Detect cloud deletes by comparing with previous state
-      await _detectAndQueueCloudDeletes(state.currentEvent!.id, currentFirebaseScans);
+      await _queueSyncService.detectCloudDeletes(state.currentEvent!.id, currentFirebaseScans);
       
-      // 3. Get resolved scans using queue-based sync (applies both adds and deletes with timestamps)
-      final resolvedScans = await _getResolvedScansWithQueues(state.currentEvent!.id, currentFirebaseScans);
+      // 3. Get resolved scans using queue-based sync service (applies both adds and deletes with timestamps)
+      final resolvedScans = await _queueSyncService.getResolvedScansForEvent(state.currentEvent!.id);
       
       debugPrint('🔄 _forceReloadScansFromFirebase: Resolved to ${resolvedScans.length} final scans');
       

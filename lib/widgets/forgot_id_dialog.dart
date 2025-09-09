@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,6 +24,8 @@ class _ForgotIdDialogState extends ConsumerState<ForgotIdDialog> {
   List<Student> _filteredStudents = [];
   bool _isLoading = true;
   String _searchText = '';
+  Timer? _debounceTimer;
+  static const _debounceDelay = Duration(milliseconds: 300);
 
   @override
   void initState() {
@@ -35,23 +38,27 @@ class _ForgotIdDialogState extends ConsumerState<ForgotIdDialog> {
   void dispose() {
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
+    _debounceTimer?.cancel();
     super.dispose();
   }
 
   Future<void> _loadStudents() async {
     try {
-      final scannerService = ScannerService();
+      // Use existing scanner service from provider instead of creating new instance
+      final scannerService = ref.read(scannerServiceProvider);
       final students = await scannerService.getStudents();
-      setState(() {
-        _allStudents = students;
-        _filteredStudents = students;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
       if (mounted) {
+        setState(() {
+          _allStudents = students;
+          _filteredStudents = students;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading students: $e')),
         );
@@ -60,20 +67,43 @@ class _ForgotIdDialogState extends ConsumerState<ForgotIdDialog> {
   }
 
   void _onSearchChanged() {
-    final searchText = _searchController.text.toLowerCase();
-    setState(() {
-      _searchText = searchText;
-      if (searchText.isEmpty) {
-        _filteredStudents = _allStudents;
-      } else {
-        _filteredStudents = _allStudents.where((student) {
-          return student.firstName.toLowerCase().contains(searchText) ||
-                 student.lastName.toLowerCase().contains(searchText) ||
-                 student.studentId.toLowerCase().contains(searchText) ||
-                 student.email.toLowerCase().contains(searchText);
-        }).toList();
+    // Cancel previous debounce timer
+    _debounceTimer?.cancel();
+    
+    // Start new debounce timer
+    _debounceTimer = Timer(_debounceDelay, () {
+      final searchText = _searchController.text.toLowerCase();
+      if (mounted) {
+        setState(() {
+          _searchText = searchText;
+          _performSearch(searchText);
+        });
       }
     });
+  }
+  
+  void _performSearch(String searchText) {
+    if (searchText.isEmpty) {
+      _filteredStudents = _allStudents;
+    } else {
+      // Use efficient filtering with early exit
+      _filteredStudents = [];
+      for (final student in _allStudents) {
+        if (_filteredStudents.length >= 50) break; // Limit results for performance
+        
+        final firstName = student.firstName.toLowerCase();
+        final lastName = student.lastName.toLowerCase();
+        final studentId = student.studentId.toLowerCase();
+        final email = student.email.toLowerCase();
+        
+        if (firstName.contains(searchText) ||
+            lastName.contains(searchText) ||
+            studentId.contains(searchText) ||
+            email.contains(searchText)) {
+          _filteredStudents.add(student);
+        }
+      }
+    }
   }
 
   void _selectStudent(Student student) async {

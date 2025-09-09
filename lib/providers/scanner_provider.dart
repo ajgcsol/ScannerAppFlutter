@@ -293,15 +293,16 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
           eventNumber: state.currentEvent!.eventNumber,
         );
         
+        // Optimistically add scan to current list for instant UI update (lightning fast!)
+        final updatedScans = [newScan, ...state.scans]; // Add to front (most recent first)
+        
         // Set state to show student dialog after successful scan
-        debugPrint('📱 SCAN_PROCESS: Setting showStudentDialog to true');
+        debugPrint('📱 SCAN_PROCESS: Setting showStudentDialog to true with optimistic UI update');
         state = state.copyWith(
           verifiedStudent: student,
           showStudentDialog: true,
+          scans: updatedScans, // Update UI instantly
         );
-        
-        // Refresh scan data immediately to show the new scan (after setting dialog state)
-        await _loadScansForCurrentEvent();
         debugPrint('📱 SCAN_PROCESS: Success path completed');
       } else {
         debugPrint('📱 SCAN_PROCESS: Student NOT found - recording as error scan');
@@ -326,16 +327,17 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         );
         debugPrint('📱 SCAN_PROCESS: Error scan recorded as scan record');
         
-        debugPrint('📱 SCAN_PROCESS: About to call state.copyWith with error message');
+        // Optimistically add error scan to current list for instant UI update (lightning fast!)
+        final updatedScans = [errorScan, ...state.scans]; // Add to front (most recent first)
+        
+        debugPrint('📱 SCAN_PROCESS: About to call state.copyWith with error message and optimistic UI update');
         final oldState = state;
         state = state.copyWith(
           errorMessage: 'Student not found. Scan recorded with report option.',
           showStudentDialog: false,
           verifiedStudent: null,
+          scans: updatedScans, // Update UI instantly
         );
-        
-        // Refresh scan data immediately to show the error scan
-        await _loadScansForCurrentEvent();
         
         debugPrint('📱 SCAN_PROCESS: state.copyWith completed');
         debugPrint('📱 SCAN_PROCESS: Old state errorMessage: ${oldState.errorMessage}');
@@ -426,10 +428,13 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       newScan,
       eventNumber: state.currentEvent!.eventNumber,
     );
-    debugPrint('🔍 MANUAL_SCAN: recordScan completed, refreshing scans...');
-    // Refresh scan data immediately to show the new scan
-    await _loadScansForCurrentEvent();
-    debugPrint('🔍 MANUAL_SCAN: addManualScan completed successfully');
+    debugPrint('🔍 MANUAL_SCAN: recordScan completed, updating UI optimistically...');
+    
+    // Optimistically add scan to current list for instant UI update (lightning fast!)
+    final updatedScans = [newScan, ...state.scans]; // Add to front (most recent first)
+    state = state.copyWith(scans: updatedScans);
+    
+    debugPrint('🔍 MANUAL_SCAN: addManualScan completed successfully with ${updatedScans.length} scans');
   }
 
   Future<void> selectEvent(Event event) async {

@@ -32,14 +32,14 @@ class _EventSelectorDialogState extends State<EventSelectorDialog> {
         final name = event.name.toLowerCase();
         final id = event.id.toLowerCase();
         
-        // Check if it's a sample/test event
+        // Check if it's a sample/test event (be more specific to avoid filtering legitimate events)
         final isSampleEvent = name.contains('sample') || 
-                             name.contains('test') ||
+                             name.startsWith('test ') ||  // Only filter "test something" not "test-5" or "testing"
+                             name == 'test' ||            // Exact match for "test"
                              name.contains('demo') ||
                              name.contains('example') ||
                              id.startsWith('event_') ||
                              id.contains('sample') ||
-                             id.contains('test') ||
                              id.contains('demo');
         
         return event.isActive && !event.isCompleted && !isSampleEvent;

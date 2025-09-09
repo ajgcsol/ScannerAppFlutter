@@ -240,14 +240,14 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         final name = e.name.toLowerCase();
         final id = e.id.toLowerCase();
         
-        // Filter out sample/test events
-        final isSampleEvent = name.contains('sample') || 
-                             name.contains('test') ||
+        // Filter out sample/test events (be more specific to avoid filtering legitimate events)
+        final isSampleEvent = name.startsWith('sample') || 
+                             name.startsWith('test ') ||  // Only filter "test something" not "test-5" or "testing"
+                             name == 'test' ||            // Exact match for "test"
                              name.contains('demo') ||
                              name.contains('example') ||
                              id.startsWith('event_') ||
                              id.contains('sample') ||
-                             id.contains('test') ||
                              id.contains('demo');
         
         // Only show active, non-sample events by default

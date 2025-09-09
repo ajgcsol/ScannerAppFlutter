@@ -11,7 +11,7 @@ import '../models/error_record.dart' as error_model;
 class DatabaseService {
   static Database? _database;
   static const String _databaseName = 'insession.db';
-  static const int _databaseVersion = 1;
+  static const int _databaseVersion = 2; // Bumped to remove sample data
 
   // Table names
   static const String _eventsTable = 'events';
@@ -113,8 +113,8 @@ class DatabaseService {
     await db.execute('CREATE INDEX idx_scans_timestamp ON $_scansTable (timestamp)');
     await db.execute('CREATE INDEX idx_students_name ON $_studentsTable (firstName, lastName)');
 
-    // Insert sample data
-    await _insertSampleData(db);
+    // Don't insert sample data - use real Firebase data only
+    // await _insertSampleData(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {

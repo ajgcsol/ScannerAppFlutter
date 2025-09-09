@@ -7,6 +7,7 @@ import '../models/scan.dart';
 import '../services/scanner_service.dart';
 import '../services/sync_service.dart';
 import '../services/firebase_service.dart';
+import '../services/queue_sync_service.dart';
 
 // Scan result from camera or manual input
 class ScanResult {
@@ -15,6 +16,55 @@ class ScanResult {
 
   ScanResult({
     required this.code,
+    required this.timestamp,
+  });
+}
+
+// Helper classes for timestamp-based conflict resolution
+class _ScanWithTimestamp {
+  final String studentId;
+  final DateTime timestamp;
+  final String source;
+  final bool isDeleted;
+  final dynamic scanData;
+  
+  _ScanWithTimestamp({
+    required this.studentId,
+    required this.timestamp,
+    required this.source,
+    required this.isDeleted,
+    this.scanData,
+  });
+  
+  _ScanWithTimestamp copyWith({bool? isDeleted}) {
+    return _ScanWithTimestamp(
+      studentId: studentId,
+      timestamp: timestamp,
+      source: source,
+      isDeleted: isDeleted ?? this.isDeleted,
+      scanData: scanData,
+    );
+  }
+}
+
+class _PendingScan {
+  final String studentId;
+  final DateTime timestamp;
+  final dynamic scanData;
+  
+  _PendingScan({
+    required this.studentId,
+    required this.timestamp,
+    this.scanData,
+  });
+}
+
+class _PendingDelete {
+  final String studentId;
+  final DateTime timestamp;
+  
+  _PendingDelete({
+    required this.studentId,
     required this.timestamp,
   });
 }
@@ -104,6 +154,7 @@ class ScannerState {
 // Scanner Notifier
 class ScannerNotifier extends StateNotifier<ScannerState> {
   final ScannerService _scannerService;
+  final QueueSyncService _queueSyncService = QueueSyncService();
   Timer? _refreshTimer;
   Timer? _debounceTimer;
   StreamSubscription<SyncStatus>? _syncStatusSubscription;
@@ -606,46 +657,31 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
   }
 
   Future<void> _forceReloadScansFromFirebase() async {
-    debugPrint('🔄 _forceReloadScansFromFirebase: Starting fresh reload');
+    debugPrint('🔄 _forceReloadScansFromFirebase: Starting queue-based refresh');
     
     if (state.currentEvent == null) return;
     
     try {
-      // Force clear the cache first
-      _scannerService.clearCacheForEvent(state.currentEvent!.id);
-      
-      // Get ONLY Firebase scans (no local database merge)
+      // 1. Get current Firebase state
       final firebaseService = FirebaseService.instance;
-      final firebaseScans = await firebaseService.getScanRecordsOnce(
+      final currentFirebaseScans = await firebaseService.getScanRecordsOnce(
         eventId: state.currentEvent!.id,
         eventNumber: state.currentEvent!.eventNumber,
       );
       
-      debugPrint('🔄 _forceReloadScansFromFirebase: Got ${firebaseScans.length} raw scans from Firebase');
+      debugPrint('🔄 _forceReloadScansFromFirebase: Got ${currentFirebaseScans.length} scans from Firebase');
       
-      // Get students for name mapping
-      final students = await _scannerService.getStudents();
-      final studentMap = {for (var s in students) s.studentId: s};
+      // 2. Detect cloud deletes by comparing with previous state
+      await _detectAndQueueCloudDeletes(state.currentEvent!.id, currentFirebaseScans);
       
-      // Convert Firebase scan records to Scan models
-      final scans = firebaseScans.map((record) {
-        final student = studentMap[record.studentId ?? record.code];
-        return Scan(
-          studentId: record.studentId ?? record.code,
-          timestamp: record.timestamp,
-          studentName: student?.fullName ?? 'Unknown Student',
-          studentEmail: student?.email ?? '',
-        );
-      }).toList();
+      // 3. Get resolved scans using queue-based sync (applies both adds and deletes with timestamps)
+      final resolvedScans = await _getResolvedScansWithQueues(state.currentEvent!.id, currentFirebaseScans);
       
-      // Sort by timestamp descending (most recent first)
-      scans.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      debugPrint('🔄 _forceReloadScansFromFirebase: Resolved to ${resolvedScans.length} final scans');
       
-      debugPrint('🔄 _forceReloadScansFromFirebase: Converted to ${scans.length} UI scans');
-      
-      // Update state with ONLY Firebase scans (ignore existing UI scans)
+      // 4. Update UI with resolved scans
       state = state.copyWith(
-        scans: scans,
+        scans: resolvedScans,
         // Preserve dialog states
         showStudentDialog: state.showStudentDialog,
         showDuplicateDialog: state.showDuplicateDialog,
@@ -653,12 +689,130 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         errorMessage: state.errorMessage,
       );
       
-      debugPrint('🔄 _forceReloadScansFromFirebase: Updated UI with ${scans.length} scans');
+      debugPrint('🔄 _forceReloadScansFromFirebase: Updated UI with ${resolvedScans.length} scans');
+      
     } catch (e) {
       debugPrint('❌ _forceReloadScansFromFirebase: Error: $e');
-      // Fall back to regular reload if Firebase direct access fails
+      // Fall back to regular reload if queue sync fails
       await _loadScansForCurrentEvent();
     }
+  }
+
+  /// Detect cloud deletes by comparing current Firebase state with local database
+  Future<void> _detectAndQueueCloudDeletes(String eventId, List<dynamic> currentFirebaseScans) async {
+    debugPrint('🔄 Detecting cloud deletes for event $eventId');
+    
+    try {
+      // Get previous state from local database
+      final localScans = await _scannerService._databaseService.getScansForEvent(eventId);
+      
+      final localStudentIds = localScans.map((s) => s.studentId).toSet();
+      final firebaseStudentIds = currentFirebaseScans.map((s) => s.studentId ?? s.code).toSet();
+      
+      // Find scans that were deleted from Firebase
+      final deletedIds = localStudentIds.difference(firebaseStudentIds);
+      
+      if (deletedIds.isNotEmpty) {
+        debugPrint('🔄 Detected ${deletedIds.length} cloud deletes: $deletedIds');
+        
+        // Store delete operations with current timestamp
+        for (final deletedId in deletedIds) {
+          await _queueCloudDelete(eventId, deletedId, DateTime.now());
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error detecting cloud deletes: $e');
+    }
+  }
+
+  /// Queue a cloud delete operation
+  Future<void> _queueCloudDelete(String eventId, String studentId, DateTime deleteTime) async {
+    // For now, store in a simple list. In production, this would be persisted to database
+    debugPrint('🔄 Queuing cloud delete: $studentId at $deleteTime');
+    // TODO: Implement persistent storage for delete queue
+  }
+
+  /// Get resolved scans applying timestamp-based conflict resolution
+  Future<List<Scan>> _getResolvedScansWithQueues(String eventId, List<dynamic> firebaseScans) async {
+    debugPrint('🔄 Resolving scans with timestamp-based queues');
+    
+    // Create a map for timestamp-based resolution
+    final Map<String, _ScanWithTimestamp> scanMap = {};
+    
+    // 1. Add Firebase scans
+    for (final fbScan in firebaseScans) {
+      final studentId = fbScan.studentId ?? fbScan.code;
+      scanMap[studentId] = _ScanWithTimestamp(
+        studentId: studentId,
+        timestamp: fbScan.timestamp,
+        source: 'firebase',
+        isDeleted: false,
+        scanData: fbScan,
+      );
+    }
+    
+    // 2. Apply pending local adds (if newer timestamp)
+    final localPendingScans = await _getPendingLocalAdds(eventId);
+    for (final localScan in localPendingScans) {
+      final existing = scanMap[localScan.studentId];
+      
+      if (existing == null || localScan.timestamp.isAfter(existing.timestamp)) {
+        scanMap[localScan.studentId] = _ScanWithTimestamp(
+          studentId: localScan.studentId,
+          timestamp: localScan.timestamp,
+          source: 'local',
+          isDeleted: false,
+          scanData: localScan,
+        );
+        debugPrint('🔄 Applied local add for ${localScan.studentId} (newer timestamp)');
+      }
+    }
+    
+    // 3. Apply cloud deletes (if newer timestamp)
+    final cloudDeletes = await _getPendingCloudDeletes(eventId);
+    for (final delete in cloudDeletes) {
+      final existing = scanMap[delete.studentId];
+      
+      if (existing != null && delete.timestamp.isAfter(existing.timestamp)) {
+        // Mark as deleted instead of removing (for audit trail)
+        scanMap[delete.studentId] = existing.copyWith(isDeleted: true);
+        debugPrint('🔄 Applied cloud delete for ${delete.studentId} (newer timestamp)');
+      }
+    }
+    
+    // 4. Convert to final scan list (exclude deleted)
+    final students = await _scannerService.getStudents();
+    final studentMap = {for (var s in students) s.studentId: s};
+    
+    final finalScans = scanMap.values
+        .where((s) => !s.isDeleted)
+        .map((s) {
+          final student = studentMap[s.studentId];
+          return Scan(
+            studentId: s.studentId,
+            timestamp: s.timestamp,
+            studentName: student?.fullName ?? 'Unknown Student',
+            studentEmail: student?.email ?? '',
+          );
+        })
+        .toList();
+    
+    // Sort by timestamp descending
+    finalScans.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    
+    return finalScans;
+  }
+
+  /// Get pending local adds for this event
+  Future<List<_PendingScan>> _getPendingLocalAdds(String eventId) async {
+    // TODO: Get from database/queue. For now, return empty
+    return [];
+  }
+
+  /// Get pending cloud deletes for this event  
+  Future<List<_PendingDelete>> _getPendingCloudDeletes(String eventId) async {
+    // TODO: Get from database/queue. For now, return empty
+    return [];
   }
 
   Future<void> createEvent(Event event) async {

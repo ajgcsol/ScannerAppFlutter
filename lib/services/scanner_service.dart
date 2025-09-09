@@ -117,9 +117,11 @@ class ScannerService {
   Future<List<Scan>> getScansForEvent(String eventId, {int? eventNumber}) async {
     debugPrint('🔍 getScansForEvent called with eventId: $eventId, eventNumber: $eventNumber');
     
+    // Use eventId consistently as cache key to prevent cross-event cache conflicts
+    final cacheKey = eventId;
+    
     // Check cache first (valid for 30 seconds)
     final now = DateTime.now();
-    final cacheKey = eventNumber?.toString() ?? eventId;
     if (_lastCacheTime != null && 
         now.difference(_lastCacheTime!).inSeconds < 30 && 
         _scansCache.containsKey(cacheKey)) {
@@ -176,6 +178,9 @@ class ScannerService {
         }
       }
       
+      // Ensure scans are sorted by timestamp descending (most recent first)
+      scans.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      
       debugPrint('🔍 Found ${scans.length} scans for cacheKey: $cacheKey');
       
       // Cache the result
@@ -212,11 +217,8 @@ class ScannerService {
     // This prevents double-syncing issues where the same scan gets sent twice
     debugPrint('📱 SCAN_SAVED: Scan saved locally, will be synced by sync service');
     
-    // Invalidate cache to show fresh data
+    // Invalidate cache to show fresh data - only use eventId as key for consistency
     _scansCache.remove(eventId);
-    if (eventNumber != null) {
-      _scansCache.remove(eventNumber.toString());
-    }
     _lastCacheTime = null;
     
     // Trigger sync attempt (will check connectivity internally)
@@ -266,4 +268,11 @@ class ScannerService {
   
   // Force sync now (for manual sync button)
   Future<void> forceSyncNow() => _syncService.forceSyncNow();
+  
+  // Clear cache for specific event (used when switching events)
+  void clearCacheForEvent(String eventId) {
+    _scansCache.remove(eventId);
+    _lastCacheTime = null;
+    debugPrint('🔍 Cache cleared for event: $eventId');
+  }
 }

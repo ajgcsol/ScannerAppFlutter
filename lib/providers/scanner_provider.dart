@@ -159,11 +159,16 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       Event selectedEvent;
       if (activeEvents.isNotEmpty) {
         // Filter out sample/test events and prefer real Firebase events
-        final realActiveEvents = activeEvents.where((e) => 
-          !e.name.toLowerCase().contains('sample') && 
-          !e.name.toLowerCase().contains('test') &&
-          !e.id.startsWith('event_')
-        ).toList();
+        final realActiveEvents = activeEvents.where((e) {
+          final name = e.name.toLowerCase();
+          final id = e.id.toLowerCase();
+          return !name.contains('sample') && 
+                 !name.contains('test') &&
+                 !name.contains('demo') &&
+                 !id.startsWith('event_') &&
+                 !id.contains('sample') &&
+                 !id.contains('test');
+        }).toList();
         
         selectedEvent = realActiveEvents.isNotEmpty ? realActiveEvents.first : activeEvents.first;
       } else {
@@ -171,7 +176,22 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       }
       
       debugPrint('📱 Setting current event to: ${selectedEvent.name} (id: ${selectedEvent.id}, active: ${selectedEvent.isActive})');
-      state = state.copyWith(availableEvents: events, currentEvent: selectedEvent);
+      
+      // Filter available events to show only real events by default (hide sample/test events)
+      final filteredEvents = events.where((e) {
+        final name = e.name.toLowerCase();
+        final id = e.id.toLowerCase();
+        return !name.contains('sample') && 
+               !name.contains('test') &&
+               !name.contains('demo') &&
+               !id.startsWith('event_') &&
+               !id.contains('sample') &&
+               !id.contains('test');
+      }).toList();
+      
+      // Use filtered events for the available events list, but keep original events if no real events found
+      final eventsToShow = filteredEvents.isNotEmpty ? filteredEvents : events;
+      state = state.copyWith(availableEvents: eventsToShow, currentEvent: selectedEvent);
     } else {
       debugPrint('📱 No events found, setting empty list');
       state = state.copyWith(availableEvents: []);
@@ -413,10 +433,17 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
   }
 
   Future<void> selectEvent(Event event) async {
+    debugPrint('📱 selectEvent: Switching to event ${event.name} (${event.id})');
+    
+    // Clear cache for the new event to ensure fresh data
+    _scannerService.clearCacheForEvent(event.id);
+    
     state = state.copyWith(isLoading: true, currentEvent: event, showEventSelector: false, scans: []);
     await _loadScansForCurrentEvent();
     _startPeriodicRefresh(); // Restart refresh timer for new event
     state = state.copyWith(isLoading: false);
+    
+    debugPrint('📱 selectEvent: Event switched successfully, loaded ${state.scans.length} scans');
   }
 }
 

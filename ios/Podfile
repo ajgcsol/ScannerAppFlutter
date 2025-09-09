@@ -31,8 +31,8 @@ target 'Runner' do
   use_frameworks!
   
   # Fix Xcode 16 gRPC-Core compatibility
-  pod 'gRPC-Core', '~> 1.44.0'
-  pod 'gRPC-C++', '~> 1.44.0'
+  pod 'gRPC-Core', '~> 1.62.0'
+  pod 'gRPC-C++', '~> 1.62.0'
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do

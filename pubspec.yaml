@@ -21,10 +21,10 @@ dependencies:
   flutter_riverpod: ^2.4.9
   
   # Firebase Integration 
-  firebase_core: ^2.24.2
-  cloud_firestore: ^4.13.6
-  firebase_auth: ^4.15.3
-  firebase_storage: ^11.5.6
+  firebase_core: ^2.32.0
+  cloud_firestore: ^4.17.5
+  firebase_auth: ^4.16.0
+  firebase_storage: ^11.6.5
   
   # Camera & Barcode Scanning
   camera: ^0.10.5+9

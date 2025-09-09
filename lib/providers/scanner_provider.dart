@@ -521,13 +521,12 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       newScan,
       eventNumber: state.currentEvent!.eventNumber,
     );
-    debugPrint('🔍 MANUAL_SCAN: recordScan completed, updating UI optimistically...');
+    debugPrint('🔍 MANUAL_SCAN: recordScan completed, refreshing scan list...');
     
-    // Optimistically add scan to current list for instant UI update (lightning fast!)
-    final updatedScans = [newScan, ...state.scans]; // Add to front (most recent first)
-    state = state.copyWith(scans: updatedScans);
+    // Reload scans from database to show the new scan (prevents duplicates)
+    await _loadScansForCurrentEvent();
     
-    debugPrint('🔍 MANUAL_SCAN: addManualScan completed successfully with ${updatedScans.length} scans');
+    debugPrint('🔍 MANUAL_SCAN: addManualScan completed successfully with ${state.scans.length} scans');
   }
 
   Future<void> completeEvent() async {

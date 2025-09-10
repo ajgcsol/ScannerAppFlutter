@@ -227,26 +227,51 @@ async function uploadData() {
 
 async function loadStudentData() {
     try {
-        const studentsSnapshot = await db.collection('students')
-            .orderBy('lastName')
-            .limit(100)
-            .get();
+        console.log('Loading student data with photo information...');
         
-        currentStudents = studentsSnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        }));
+        // Use the new API that includes photo data
+        const response = await fetch('https://us-central1-scannerappfb.cloudfunctions.net/getStudentsWithPhotos?includePhotos=true');
         
+        if (!response.ok) {
+            throw new Error('Failed to fetch student data');
+        }
+        
+        const data = await response.json();
+        currentStudents = data.students || [];
+        
+        console.log(`Loaded ${currentStudents.length} students`);
         displayStudents(currentStudents);
+        updatePhotoFilterCount();
         
     } catch (error) {
         console.error('Error loading students:', error);
         showMessage('Error loading student data: ' + error.message, 'error');
+        
+        // Fallback to direct Firestore query
+        try {
+            const studentsSnapshot = await db.collection('students')
+                .orderBy('lastName')
+                .limit(100)
+                .get();
+            
+            currentStudents = studentsSnapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                hasPhoto: doc.data().hasPhoto || false
+            }));
+            
+            displayStudents(currentStudents);
+            updatePhotoFilterCount();
+            
+        } catch (fallbackError) {
+            console.error('Fallback query also failed:', fallbackError);
+        }
     }
 }
 
 function displayStudents(students) {
-    const tbody = document.getElementById('students-tbody');
+    // Try both possible tbody IDs for compatibility
+    const tbody = document.getElementById('students-tbody') || document.querySelector('#students-table tbody');
     
     if (students.length === 0) {
         tbody.innerHTML = `
@@ -3003,6 +3028,164 @@ document.addEventListener('keydown', function(e) {
         closeArchivePreview();
     }
 });
+
+// Student photo management functions
+async function checkStudentPhotos() {
+    try {
+        showMessage('Checking student photos in Firebase Storage...', 'info');
+        
+        const checkBtn = document.querySelector('[onclick="checkStudentPhotos()"]');
+        const originalText = checkBtn.textContent;
+        checkBtn.textContent = 'Checking...';
+        checkBtn.disabled = true;
+        
+        const response = await fetch('https://us-central1-scannerappfb.cloudfunctions.net/checkStudentPhotos', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to check student photos');
+        }
+
+        const result = await response.json();
+        const summary = result.summary;
+        
+        showMessage(
+            `Photo check complete! Found ${summary.photosFound} students with photos, ` +
+            `${summary.photosNotFound} without photos. Updated ${summary.recordsUpdated} records.`,
+            'success'
+        );
+        
+        // Refresh the student data to show updated photo status
+        await loadStudentData();
+        updatePhotoFilterCount();
+        
+        checkBtn.textContent = originalText;
+        checkBtn.disabled = false;
+        
+    } catch (error) {
+        console.error('Error checking student photos:', error);
+        showMessage('Error checking photos: ' + error.message, 'error');
+        
+        const checkBtn = document.querySelector('[onclick="checkStudentPhotos()"]');
+        checkBtn.textContent = 'Check Photos';
+        checkBtn.disabled = false;
+    }
+}
+
+async function filterStudentsByPhoto() {
+    const filter = document.getElementById('photo-filter').value;
+    console.log('Filtering students by photo:', filter);
+    
+    try {
+        let hasPhotoParam = null;
+        if (filter === 'with-photos') {
+            hasPhotoParam = 'true';
+        } else if (filter === 'without-photos') {
+            hasPhotoParam = 'false';
+        }
+        
+        // Build URL with photo filter
+        let url = 'https://us-central1-scannerappfb.cloudfunctions.net/getStudentsWithPhotos?includePhotos=true';
+        if (hasPhotoParam) {
+            url += `&hasPhoto=${hasPhotoParam}`;
+        }
+        
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch filtered students');
+        }
+        
+        const data = await response.json();
+        const students = data.students || [];
+        
+        console.log(`Loaded ${students.length} students with filter: ${filter}`);
+        displayStudents(students);
+        updatePhotoFilterCount(students.length, filter);
+        
+    } catch (error) {
+        console.error('Error filtering students:', error);
+        showMessage('Error filtering students: ' + error.message, 'error');
+    }
+}
+
+function updatePhotoFilterCount(count = null, filter = null) {
+    const countSpan = document.getElementById('photo-filter-count');
+    
+    if (count !== null && filter !== null) {
+        let filterText = '';
+        switch (filter) {
+            case 'with-photos':
+                filterText = 'with photos';
+                break;
+            case 'without-photos':
+                filterText = 'without photos';
+                break;
+            default:
+                filterText = 'total';
+        }
+        countSpan.textContent = `(${count} ${filterText})`;
+    } else {
+        // Count from current table
+        const tableRows = document.querySelectorAll('#students-table tbody tr');
+        const currentFilter = document.getElementById('photo-filter').value;
+        
+        let filterText = '';
+        switch (currentFilter) {
+            case 'with-photos':
+                filterText = 'with photos';
+                break;
+            case 'without-photos':
+                filterText = 'without photos';
+                break;
+            default:
+                filterText = 'total';
+        }
+        
+        countSpan.textContent = `(${tableRows.length} ${filterText})`;
+    }
+}
+
+function displayStudents(students) {
+    // Try both possible tbody IDs for compatibility
+    const tbody = document.getElementById('students-tbody') || document.querySelector('#students-table tbody');
+    
+    if (students.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: #718096;">No students found with the current filter</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = students.map(student => {
+        const photoCell = student.hasPhoto && student.photoUrl
+            ? `<img src="${student.photoUrl}" alt="${student.firstName} ${student.lastName}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid #e2e8f0;">`
+            : `<div style="width: 40px; height: 40px; border-radius: 50%; background: #f7fafc; border: 2px solid #e2e8f0; display: flex; align-items: center; justify-content: center; color: #a0aec0; font-size: 12px; font-weight: 600;">${student.firstName.charAt(0)}${student.lastName.charAt(0)}</div>`;
+        
+        const photoStatus = student.hasPhoto 
+            ? '<span style="color: #22c55e; font-size: 12px;">✓ Has photo</span>'
+            : '<span style="color: #ef4444; font-size: 12px;">✗ No photo</span>';
+        
+        return `
+            <tr>
+                <td style="text-align: center;">
+                    ${photoCell}
+                    <div style="margin-top: 4px;">${photoStatus}</div>
+                </td>
+                <td style="font-weight: 600;">${student.studentId}</td>
+                <td>${student.firstName}</td>
+                <td>${student.lastName}</td>
+                <td style="color: #718096;">${student.email || 'N/A'}</td>
+                <td>
+                    <button class="btn" style="background: #ef4444; color: white; padding: 5px 10px; font-size: 12px;" onclick="deleteStudent('${student.id}', '${student.firstName}', '${student.lastName}')">Delete</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
 
 // Add animation styles
 const styleSheet = document.createElement('style');

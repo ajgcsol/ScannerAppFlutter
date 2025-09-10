@@ -1020,3 +1020,202 @@ export const getDeletedEvents = functions.runWith({invoker: 'public'}).https.onR
   }
 });
 
+// Check and update student photo URLs from Firebase Storage
+export const checkStudentPhotos = functions.runWith({invoker: 'public'}).https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  try {
+    console.log("🔍 Starting student photo check...");
+    
+    // Get all students
+    const studentsSnapshot = await db.collection("students").get();
+    console.log(`Found ${studentsSnapshot.size} students to check`);
+
+    const bucket = admin.storage().bucket();
+    const batch = db.batch();
+    
+    let photosFound = 0;
+    let photosNotFound = 0;
+    let photosUpdated = 0;
+    
+    const results = [];
+
+    for (const studentDoc of studentsSnapshot.docs) {
+      const studentData = studentDoc.data();
+      const studentId = studentData.studentId;
+      
+      if (!studentId) {
+        console.log(`⚠️ Student ${studentDoc.id} has no studentId, skipping`);
+        continue;
+      }
+
+      // Check for photo using the convention: {Student ID}-photo.jpg
+      const photoFileName = `${studentId}-photo.jpg`;
+      
+      try {
+        // Check if file exists in Firebase Storage
+        const file = bucket.file(photoFileName);
+        const [exists] = await file.exists();
+        
+        if (exists) {
+          // Generate a download URL
+          const [url] = await file.getSignedUrl({
+            action: 'read',
+            expires: '03-09-2491' // Long expiry for student photos
+          });
+          
+          console.log(`✅ Found photo for ${studentId}: ${photoFileName}`);
+          
+          // Update student record with photo URL if it's different
+          if (studentData.photoUrl !== url) {
+            batch.update(studentDoc.ref, {
+              photoUrl: url,
+              hasPhoto: true,
+              photoFileName: photoFileName,
+              photoUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            photosUpdated++;
+          }
+          
+          photosFound++;
+          results.push({
+            studentId,
+            name: `${studentData.firstName} ${studentData.lastName}`,
+            hasPhoto: true,
+            photoUrl: url,
+            photoFileName
+          });
+        } else {
+          console.log(`❌ No photo found for ${studentId}: ${photoFileName}`);
+          
+          // Update student record to indicate no photo
+          if (studentData.hasPhoto !== false) {
+            batch.update(studentDoc.ref, {
+              hasPhoto: false,
+              photoUrl: admin.firestore.FieldValue.delete(),
+              photoFileName: admin.firestore.FieldValue.delete(),
+              photoUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            photosUpdated++;
+          }
+          
+          photosNotFound++;
+          results.push({
+            studentId,
+            name: `${studentData.firstName} ${studentData.lastName}`,
+            hasPhoto: false,
+            expectedFileName: photoFileName
+          });
+        }
+      } catch (error) {
+        console.error(`Error checking photo for ${studentId}:`, error);
+        photosNotFound++;
+        results.push({
+          studentId,
+          name: `${studentData.firstName} ${studentData.lastName}`,
+          hasPhoto: false,
+          error: error.message,
+          expectedFileName: photoFileName
+        });
+      }
+    }
+
+    // Commit all updates
+    if (photosUpdated > 0) {
+      await batch.commit();
+      console.log(`📝 Updated ${photosUpdated} student records`);
+    }
+
+    const summary = {
+      totalStudents: studentsSnapshot.size,
+      photosFound,
+      photosNotFound,
+      recordsUpdated: photosUpdated,
+      timestamp: new Date().toISOString()
+    };
+
+    console.log("📊 Photo check summary:", summary);
+
+    res.status(200).json({
+      success: true,
+      summary,
+      results: req.query.includeDetails === 'true' ? results : undefined
+    });
+
+  } catch (error) {
+    console.error("Error checking student photos:", error);
+    res.status(500).json({ error: "Failed to check student photos: " + error.message });
+  }
+});
+
+// Get students with photo filter
+export const getStudentsWithPhotos = functions.runWith({invoker: 'public'}).https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  try {
+    const { hasPhoto, includePhotos } = req.query;
+    
+    let query = db.collection("students").where("active", "==", true);
+    
+    // Apply photo filter if specified
+    if (hasPhoto === 'true') {
+      query = query.where("hasPhoto", "==", true);
+    } else if (hasPhoto === 'false') {
+      query = query.where("hasPhoto", "==", false);
+    }
+    
+    const studentsSnapshot = await query.orderBy("lastName").orderBy("firstName").get();
+    
+    const students = studentsSnapshot.docs.map(doc => {
+      const data = doc.data();
+      const student = {
+        id: doc.id,
+        studentId: data.studentId,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        program: data.program,
+        year: data.year,
+        hasPhoto: data.hasPhoto || false
+      };
+      
+      // Include photo URL if requested and available
+      if (includePhotos === 'true' && data.photoUrl) {
+        student.photoUrl = data.photoUrl;
+        student.photoFileName = data.photoFileName;
+      }
+      
+      return student;
+    });
+
+    console.log(`📋 Retrieved ${students.length} students (hasPhoto filter: ${hasPhoto || 'none'})`);
+    
+    res.status(200).json({
+      students,
+      total: students.length,
+      filter: {
+        hasPhoto: hasPhoto || null,
+        includePhotos: includePhotos === 'true'
+      }
+    });
+
+  } catch (error) {
+    console.error("Error getting students with photo filter:", error);
+    res.status(500).json({ error: "Failed to get students: " + error.message });
+  }
+});
+

@@ -737,9 +737,21 @@
                         </table>
                     </div>
                     
-                    <div style="text-align: center; margin-top: 30px;">
-                        <button class="btn btn-secondary" onclick="exportStudentData()">Export Current Data</button>
-                        <button class="btn btn-primary" onclick="refreshStudentData()">Refresh Data</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin: 20px 0;">
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <label style="color: #4a5568; font-weight: 600;">Filter:</label>
+                            <select id="photo-filter" onchange="filterStudentsByPhoto()" style="padding: 8px; border: 2px solid #e2e8f0; border-radius: 6px;">
+                                <option value="all">All Students</option>
+                                <option value="with-photos">With Photos</option>
+                                <option value="without-photos">Without Photos</option>
+                            </select>
+                            <span id="photo-filter-count" style="color: #718096; font-size: 14px;"></span>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-secondary" onclick="checkStudentPhotos()">Check Photos</button>
+                            <button class="btn btn-secondary" onclick="exportStudentData()">Export Data</button>
+                            <button class="btn btn-primary" onclick="refreshStudentData()">Refresh</button>
+                        </div>
                     </div>
                 </div>
                 

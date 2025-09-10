@@ -35,19 +35,19 @@ class ScannerService {
       if (shouldRefreshFromFirebase) {
         debugPrint('📱 ONLINE: Refreshing events from Firebase');
         try {
+          // Check for deleted events first
+          await checkForDeletedEvents();
+          
           final firebaseEvents = await _firebaseService.getEvents();
           
-          // Clear local events to detect deletions
-          await _databaseService.clearAllEvents();
-          
-          // Save fresh events to local database
-          for (final event in firebaseEvents) {
-            await _databaseService.insertEvent(event);
-          }
+          // Sync events with targeted deletion detection
+          await _syncEventsWithDeletionDetection(firebaseEvents, localEvents);
           
           _lastCacheTime = DateTime.now();
-          debugPrint('📱 SYNC: Updated ${firebaseEvents.length} events from Firebase');
-          return firebaseEvents;
+          debugPrint('📱 SYNC: Synced ${firebaseEvents.length} events from Firebase');
+          
+          // Return fresh events from database after sync
+          return await _databaseService.getAllEvents();
         } catch (e) {
           debugPrint('📱 ERROR: Failed to refresh from Firebase: $e');
           // Fall back to local events if Firebase fails
@@ -77,6 +77,82 @@ class ScannerService {
   void clearEventCache() {
     _lastCacheTime = null;
     debugPrint('📱 Event cache cleared, will refresh from Firebase on next request');
+  }
+
+  Future<void> _syncEventsWithDeletionDetection(List<Event> firebaseEvents, List<Event> localEvents) async {
+    final firebaseEventIds = firebaseEvents.map((e) => e.id).toSet();
+    final localEventIds = localEvents.map((e) => e.id).toSet();
+    
+    // Find events that exist locally but not in Firebase (candidates for deletion)
+    final potentialDeleted = localEventIds.difference(firebaseEventIds);
+    
+    for (final eventId in potentialDeleted) {
+      final localEvent = localEvents.firstWhere((e) => e.id == eventId);
+      
+      // Only delete if event was originally from Firebase (has proper Firebase ID format)
+      // Keep locally created events (they might be pending upload)
+      if (_isFirebaseEvent(localEvent)) {
+        debugPrint('📱 DELETION: Removing deleted Firebase event: ${localEvent.name} (${eventId})');
+        await _databaseService.deleteEvent(eventId);
+      } else {
+        debugPrint('📱 KEEP: Preserving locally created event: ${localEvent.name} (${eventId})');
+      }
+    }
+    
+    // Update or insert Firebase events
+    for (final firebaseEvent in firebaseEvents) {
+      await _databaseService.insertOrUpdateEvent(firebaseEvent);
+    }
+  }
+
+  bool _isFirebaseEvent(Event event) {
+    // Firebase events typically have 20+ character IDs and don't start with local prefixes
+    return event.id.length > 15 && 
+           !event.id.startsWith('local_') && 
+           !event.id.startsWith('offline_') &&
+           !event.id.startsWith('temp_');
+  }
+
+  Future<void> deleteEventById(String eventId) async {
+    debugPrint('📱 API DELETION: Removing event by ID: $eventId');
+    await _databaseService.deleteEvent(eventId);
+    clearEventCache(); // Force refresh on next load
+  }
+
+  Future<void> checkForDeletedEvents() async {
+    if (!_syncService.currentStatus.isOnline) {
+      debugPrint('📱 OFFLINE: Skipping deleted events check');
+      return;
+    }
+
+    try {
+      debugPrint('📱 Checking for deleted events from admin portal...');
+      
+      final deletedEvents = await _firebaseService.getDeletedEvents();
+      
+      if (deletedEvents.isEmpty) {
+        debugPrint('📱 No deleted events found');
+        return;
+      }
+
+      debugPrint('📱 Found ${deletedEvents.length} deleted events to process');
+      
+      for (final deletedEvent in deletedEvents) {
+        final eventId = deletedEvent['originalEventId'] as String?;
+        final eventName = deletedEvent['eventName'] as String?;
+        
+        if (eventId != null) {
+          debugPrint('📱 Processing deletion for event: $eventName ($eventId)');
+          await _databaseService.deleteEvent(eventId);
+        }
+      }
+      
+      clearEventCache(); // Force refresh on next load
+      debugPrint('📱 Deleted events processing complete');
+      
+    } catch (e) {
+      debugPrint('📱 ERROR: Failed to check for deleted events: $e');
+    }
   }
 
   Future<List<Student>> getStudents() async {

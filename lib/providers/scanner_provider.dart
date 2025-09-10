@@ -274,6 +274,27 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     await loadEvents();
   }
 
+  Future<void> deleteEventById(String eventId) async {
+    debugPrint('📱 deleteEventById() called for event: $eventId');
+    
+    // Delete from local storage
+    await _scannerService.deleteEventById(eventId);
+    
+    // If this was the current event, need to select a new one
+    if (state.currentEvent?.id == eventId) {
+      debugPrint('📱 Deleted event was current event, selecting new one');
+      await loadEvents(); // This will automatically select a new current event
+    } else {
+      // Just refresh the available events list
+      final events = await _scannerService.getEvents();
+      final activeEvents = events.where((e) => e.isActive == true).toList();
+      state = state.copyWith(
+        availableEvents: activeEvents,
+        allEvents: events,
+      );
+    }
+  }
+
   Future<void> _loadScansForCurrentEvent() async {
     debugPrint('📊 _loadScansForCurrentEvent: Starting with error message: ${state.errorMessage}');
     if (state.currentEvent == null) return;

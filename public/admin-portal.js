@@ -1602,39 +1602,30 @@ async function deleteEvent(eventId, eventName) {
     }
     
     try {
-        showMessage('Deleting event and associated data...', 'info');
+        showMessage('Deleting event and notifying mobile apps...', 'info');
         
-        // Start a batch operation to delete event and related data
-        const batch = db.batch();
-        
-        // 1. Delete the event document
-        const eventRef = db.collection('events').doc(eventId);
-        batch.delete(eventRef);
-        
-        // 2. Delete all scans associated with this event
-        const scansSnapshot = await db.collection('scans')
-            .where('listId', '==', eventId)
-            .get();
-        
-        scansSnapshot.docs.forEach(doc => {
-            batch.delete(doc.ref);
+        // Call the Firebase Function API to delete the event
+        // This will also create a deletion notification for mobile apps
+        const response = await fetch('https://us-central1-scannerappfb.cloudfunctions.net/deleteEvent', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                eventId: eventId
+            })
         });
-        
-        // 3. Delete all attendees associated with this event
-        const attendeesSnapshot = await db.collection('attendees')
-            .where('eventId', '==', eventId)
-            .get();
-        
-        attendeesSnapshot.docs.forEach(doc => {
-            batch.delete(doc.ref);
-        });
-        
-        // Execute all deletions
-        await batch.commit();
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to delete event');
+        }
+
+        const result = await response.json();
         
         showMessage(
-            `Successfully deleted event "${eventName}" and all associated data ` +
-            `(${scansSnapshot.size} scans, ${attendeesSnapshot.size} attendees).`, 
+            `Successfully deleted event "${eventName}" and all associated data. ` +
+            `${result.deletedScansCount || 0} scans were removed. Mobile apps will be notified.`, 
             'success'
         );
         

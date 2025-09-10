@@ -460,4 +460,32 @@ class FirebaseService {
       rethrow;
     }
   }
+
+  Future<List<Map<String, dynamic>>> getDeletedEvents() async {
+    try {
+      debugPrint('🔥 Fetching deleted events from Firebase Functions');
+      
+      final response = await _dio.get(
+        'https://us-central1-scannerappfb.cloudfunctions.net/getDeletedEvents',
+        options: Options(
+          headers: {'Content-Type': 'application/json'},
+        ),
+      );
+
+      if (response.statusCode == 200 && response.data is List) {
+        final deletedEvents = List<Map<String, dynamic>>.from(response.data);
+        debugPrint('🔥 Retrieved ${deletedEvents.length} deleted events');
+        return deletedEvents;
+      } else {
+        debugPrint('🔥 Unexpected response format for deleted events');
+        return [];
+      }
+    } on DioException catch (e) {
+      debugPrint('🔥 DioException fetching deleted events: ${e.response?.data}');
+      throw Exception('Network error fetching deleted events: ${e.message}');
+    } catch (e) {
+      debugPrint('🔥 Error fetching deleted events: $e');
+      return []; // Return empty list on error to avoid disrupting the app
+    }
+  }
 }

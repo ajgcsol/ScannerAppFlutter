@@ -266,6 +266,36 @@ class DatabaseService {
     await db.delete(_eventsTable);
   }
 
+  Future<void> deleteEvent(String eventId) async {
+    final db = await database;
+    await db.delete(
+      _eventsTable,
+      where: 'id = ?',
+      whereArgs: [eventId],
+    );
+  }
+
+  Future<void> insertOrUpdateEvent(Event event) async {
+    final db = await database;
+    await db.insert(
+      _eventsTable,
+      {
+        'id': event.id,
+        'eventNumber': event.eventNumber,
+        'name': event.name,
+        'description': event.description,
+        'date': event.date.millisecondsSinceEpoch,
+        'location': event.location,
+        'isActive': event.isActive ? 1 : 0,
+        'isCompleted': event.isCompleted ? 1 : 0,
+        'completedAt': event.completedAt?.millisecondsSinceEpoch,
+        'createdBy': event.createdBy,
+        'exportFormat': event.exportFormat.toString().split('.').last,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
   // Student operations
   Future<List<Student>> getAllStudents() async {
     final db = await database;

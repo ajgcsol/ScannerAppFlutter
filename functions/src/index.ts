@@ -893,3 +893,130 @@ export const bulkDeleteScanRecords = functions.runWith({invoker: 'public'}).http
   }
 });
 
+// Delete Event (for admin portal with mobile app notification)
+export const deleteEvent = functions.runWith({invoker: 'public'}).https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "DELETE, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "DELETE") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  try {
+    const { eventId } = req.body;
+
+    if (!eventId) {
+      res.status(400).json({ error: "eventId is required" });
+      return;
+    }
+
+    console.log(`Deleting event: ${eventId}`);
+
+    // Get event details before deletion for notification
+    const eventDoc = await db.collection("events").doc(eventId).get();
+    
+    if (!eventDoc.exists) {
+      res.status(404).json({ error: "Event not found" });
+      return;
+    }
+
+    const eventData = eventDoc.data();
+    const eventName = eventData?.name || "Unknown Event";
+
+    // Create deletion notification record for mobile apps to detect
+    await db.collection("deleted_events").doc(eventId).set({
+      originalEventId: eventId,
+      eventName: eventName,
+      eventNumber: eventData?.eventNumber,
+      deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+      deletedBy: "admin_portal",
+      action: "delete_event",
+    });
+
+    const batch = db.batch();
+
+    // Delete the event document
+    batch.delete(db.collection("events").doc(eventId));
+
+    // Delete all associated scans from both structures
+    // 1. Delete from flat scans collection
+    const flatScansSnapshot = await db.collection("scans")
+      .where("listId", "==", eventId)
+      .get();
+    
+    flatScansSnapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+
+    // 2. Delete from nested lists collection (all scans in the subcollection)
+    const nestedScansSnapshot = await db.collection("lists")
+      .doc(eventId)
+      .collection("scans")
+      .get();
+    
+    nestedScansSnapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+
+    // 3. Delete the list document itself
+    batch.delete(db.collection("lists").doc(eventId));
+
+    // Commit all deletions
+    await batch.commit();
+
+    console.log(`Successfully deleted event ${eventId} (${eventName}) and all associated data`);
+    
+    res.status(200).json({ 
+      success: true, 
+      message: `Event "${eventName}" and all associated data deleted successfully`,
+      eventId: eventId,
+      eventName: eventName,
+      deletedScansCount: flatScansSnapshot.size + nestedScansSnapshot.size,
+    });
+  } catch (error) {
+    console.error("Error deleting event:", error);
+    res.status(500).json({ error: "Failed to delete event" });
+  }
+});
+
+// Get Deleted Events (for mobile app sync)
+export const getDeletedEvents = functions.runWith({invoker: 'public'}).https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  try {
+    // Get deleted events from the last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const deletedEventsSnapshot = await db.collection("deleted_events")
+      .where("deletedAt", ">=", admin.firestore.Timestamp.fromDate(thirtyDaysAgo))
+      .orderBy("deletedAt", "desc")
+      .get();
+
+    const deletedEvents = deletedEventsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    console.log(`Found ${deletedEvents.length} deleted events from the last 30 days`);
+    res.status(200).json(deletedEvents);
+  } catch (error) {
+    console.error("Error getting deleted events:", error);
+    res.status(500).json({ error: "Failed to get deleted events" });
+  }
+});
+

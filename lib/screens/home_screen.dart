@@ -354,8 +354,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     return RefreshIndicator(
       onRefresh: () async {
         debugPrint('🔄 Pull to refresh triggered');
-        // Reload events and current event data
-        await scannerNotifier.loadEvents();
+        // Refresh current event data without switching events
         if (scannerState.currentEvent != null) {
           await scannerNotifier.refreshCurrentEvent();
         }
@@ -601,8 +600,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     return RefreshIndicator(
       onRefresh: () async {
         debugPrint('🔄 Scans tab: Pull to refresh triggered');
-        // Reload events and current event data
-        await scannerNotifier.loadEvents();
+        // Refresh current event data without switching events
         if (scannerState.currentEvent != null) {
           await scannerNotifier.refreshCurrentEvent();
         }

@@ -261,6 +261,11 @@ class DatabaseService {
     );
   }
 
+  Future<void> clearAllEvents() async {
+    final db = await database;
+    await db.delete(_eventsTable);
+  }
+
   // Student operations
   Future<List<Student>> getAllStudents() async {
     final db = await database;

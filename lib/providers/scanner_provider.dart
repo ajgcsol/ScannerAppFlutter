@@ -267,6 +267,13 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     }
   }
 
+  Future<void> forceRefreshEvents() async {
+    debugPrint('📱 forceRefreshEvents() called - forcing cache refresh');
+    // Clear the cache timestamp to force refresh from Firebase
+    _scannerService.clearEventCache();
+    await loadEvents();
+  }
+
   Future<void> _loadScansForCurrentEvent() async {
     debugPrint('📊 _loadScansForCurrentEvent: Starting with error message: ${state.errorMessage}');
     if (state.currentEvent == null) return;

@@ -40,7 +40,19 @@ function showTab(tabName) {
     if (tabName === 'manage') {
         loadStudentData();
     } else if (tabName === 'analytics') {
-        loadAnalytics();
+        console.log('🔄 Analytics tab clicked, loading analytics...');
+        if (window.isAuthenticated && window.isAuthenticated()) {
+            loadAnalytics();
+        } else {
+            console.log('⚠️ Not authenticated, waiting for authentication...');
+            setTimeout(() => {
+                if (window.isAuthenticated && window.isAuthenticated()) {
+                    loadAnalytics();
+                } else {
+                    console.log('❌ Still not authenticated after delay');
+                }
+            }, 1000);
+        }
     } else if (tabName === 'events') {
         loadEvents();
     }
@@ -323,35 +335,62 @@ async function exportStudentData() {
 }
 
 async function loadAnalytics() {
+    console.log('🔄 Loading analytics data...');
+    
+    // Set loading state
+    const elements = ['total-students', 'scans-today', 'unique-scans', 'success-rate'];
+    elements.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = 'Loading...';
+    });
+    
     try {
+        console.log('📊 Fetching students data...');
         // Get total students
         const studentsSnapshot = await db.collection('students').get();
-        document.getElementById('total-students').textContent = studentsSnapshot.size;
+        const totalStudents = studentsSnapshot.size;
+        console.log('📊 Total students:', totalStudents);
+        document.getElementById('total-students').textContent = totalStudents;
         
+        console.log('📊 Fetching scans data...');
         // Get scans data
         const today = new Date();
         const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        console.log('📊 Filtering scans from:', todayStart);
         
         const scansSnapshot = await db.collection('scans')
             .where('timestamp', '>=', todayStart.getTime())
             .get();
         
-        document.getElementById('scans-today').textContent = scansSnapshot.size;
+        const scansToday = scansSnapshot.size;
+        console.log('📊 Scans today:', scansToday);
+        document.getElementById('scans-today').textContent = scansToday;
         
         // Calculate unique students scanned
         const uniqueStudents = new Set(scansSnapshot.docs.map(doc => doc.data().code));
-        document.getElementById('unique-scans').textContent = uniqueStudents.size;
+        const uniqueScansCount = uniqueStudents.size;
+        console.log('📊 Unique students scanned:', uniqueScansCount);
+        document.getElementById('unique-scans').textContent = uniqueScansCount;
         
         // Calculate success rate (assuming successful scans have student match)
         const successfulScans = scansSnapshot.docs.filter(doc => doc.data().verified === true);
-        const successRate = scansSnapshot.size > 0 ? Math.round((successfulScans.length / scansSnapshot.size) * 100) : 0;
+        const successRate = scansToday > 0 ? Math.round((successfulScans.length / scansToday) * 100) : 0;
+        console.log('📊 Success rate:', successRate + '%');
         document.getElementById('success-rate').textContent = successRate + '%';
         
         // Load recent activity
-        loadRecentActivity();
+        await loadRecentActivity();
+        
+        console.log('✅ Analytics loaded successfully');
         
     } catch (error) {
-        console.error('Error loading analytics:', error);
+        console.error('❌ Error loading analytics:', error);
+        // Reset to error state
+        elements.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) element.textContent = 'Error';
+        });
+        showMessage('Failed to load analytics data: ' + error.message, 'error');
     }
 }
 
@@ -1748,7 +1787,7 @@ async function viewDetailedScans(eventId) {
                                 ${scansWithDetails.map((scan, index) => `
                                     <tr class="scan-row" data-scan-index="${index}">
                                         <td style="padding: 12px;">
-                                            <input type="checkbox" class="scan-checkbox" data-scan-id="${scan.id}" data-scan-path="${scan.docPath}" data-scan-source="${scan.source}" onchange="updateBulkDeleteButton()" style="width: 18px; height: 18px; cursor: pointer;">
+                                            <input type="checkbox" class="scan-checkbox" data-scan-id="${scan.id}" data-scan-path="${scan.docPath}" data-scan-source="${scan.source}" onchange="console.log('Checkbox changed:', this.checked); updateBulkDeleteButton()" style="width: 18px; height: 18px; cursor: pointer;">
                                         </td>
                                         <td style="padding: 12px;">${index + 1}</td>
                                         <td style="padding: 12px;">
@@ -1852,6 +1891,8 @@ function toggleAllScans() {
     const checkboxes = document.querySelectorAll('.scan-checkbox');
     const isChecked = selectAllCheckbox.checked;
     
+    console.log('toggleAllScans: Setting', checkboxes.length, 'checkboxes to', isChecked);
+    
     checkboxes.forEach(checkbox => {
         checkbox.checked = isChecked;
     });
@@ -1864,16 +1905,21 @@ function updateBulkDeleteButton() {
     const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
     const selectedCount = document.getElementById('selected-count');
     
+    console.log('updateBulkDeleteButton: Found', checkboxes.length, 'selected checkboxes');
+    
     if (checkboxes.length > 0) {
         bulkDeleteBtn.style.display = 'inline-block';
         selectedCount.textContent = checkboxes.length;
+        console.log('Bulk delete button should now be visible');
     } else {
         bulkDeleteBtn.style.display = 'none';
+        console.log('Bulk delete button hidden');
     }
     
     // Update select all checkbox state
     const allCheckboxes = document.querySelectorAll('.scan-checkbox');
     const selectAllCheckbox = document.getElementById('select-all-scans');
+    console.log('Found', allCheckboxes.length, 'total checkboxes');
     if (allCheckboxes.length > 0) {
         selectAllCheckbox.checked = checkboxes.length === allCheckboxes.length;
     }

@@ -23,33 +23,60 @@ class ScannerService {
 
   Future<List<Event>> getEvents() async {
     try {
-      // Try to get from local database first
       final localEvents = await _databaseService.getAllEvents();
+      
+      // Check if we should refresh from Firebase
+      final shouldRefreshFromFirebase = _syncService.currentStatus.isOnline && (
+        localEvents.isEmpty || // No local events
+        _lastCacheTime == null || // Never cached
+        DateTime.now().difference(_lastCacheTime!).inMinutes > 5 // Cache older than 5 minutes
+      );
+      
+      if (shouldRefreshFromFirebase) {
+        debugPrint('📱 ONLINE: Refreshing events from Firebase');
+        try {
+          final firebaseEvents = await _firebaseService.getEvents();
+          
+          // Clear local events to detect deletions
+          await _databaseService.clearAllEvents();
+          
+          // Save fresh events to local database
+          for (final event in firebaseEvents) {
+            await _databaseService.insertEvent(event);
+          }
+          
+          _lastCacheTime = DateTime.now();
+          debugPrint('📱 SYNC: Updated ${firebaseEvents.length} events from Firebase');
+          return firebaseEvents;
+        } catch (e) {
+          debugPrint('📱 ERROR: Failed to refresh from Firebase: $e');
+          // Fall back to local events if Firebase fails
+          if (localEvents.isNotEmpty) {
+            debugPrint('📱 FALLBACK: Using ${localEvents.length} local events');
+            return localEvents;
+          }
+          return [];
+        }
+      }
+      
+      // Use local events
       if (localEvents.isNotEmpty) {
-        debugPrint('📱 OFFLINE: Using ${localEvents.length} events from local database');
+        debugPrint('📱 CACHED: Using ${localEvents.length} events from local database');
         return localEvents;
       }
       
-      // If no local events, try to fetch from Firebase
-      if (_syncService.currentStatus.isOnline) {
-        debugPrint('📱 ONLINE: Fetching events from Firebase');
-        final firebaseEvents = await _firebaseService.getEvents();
-        
-        // Save to local database for offline use
-        for (final event in firebaseEvents) {
-          await _databaseService.insertEvent(event);
-        }
-        
-        return firebaseEvents;
-      } else {
-        debugPrint('📱 OFFLINE: No local events and device is offline');
-        return [];
-      }
+      debugPrint('📱 OFFLINE: No events available');
+      return [];
     } catch (e) {
       debugPrint('📱 ERROR: Failed to get events: $e');
       // Fallback to local database
       return await _databaseService.getAllEvents();
     }
+  }
+
+  void clearEventCache() {
+    _lastCacheTime = null;
+    debugPrint('📱 Event cache cleared, will refresh from Firebase on next request');
   }
 
   Future<List<Student>> getStudents() async {

@@ -47,9 +47,11 @@ class AuthService {
       appleConfig: AppleConfig(
         authority: _authority,
         authorityType: AuthorityType.aad,
-        // Authenticator app when installed (one-tap SSO for staff who have
-        // it), Safari otherwise.
-        broker: Broker.msAuthenticator,
+        // Embedded MSAL web view: the entire sign-in happens inside the
+        // app. The Authenticator broker's return hop ("application did not
+        // receive response from broker") and Safari's app-switch are both
+        // eliminated — nothing to hand back, nothing to drop.
+        broker: Broker.webView,
       ),
       androidConfig: AndroidConfig(
         configFilePath: 'assets/msal_config.json',

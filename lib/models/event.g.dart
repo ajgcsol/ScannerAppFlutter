@@ -19,6 +19,7 @@ Event _$EventFromJson(Map<String, dynamic> json) => Event(
           ? null
           : DateTime.parse(json['completedAt'] as String),
       createdAt: DateTime.parse(json['createdAt'] as String),
+      groupId: json['groupId'] as String?,
       createdBy: json['createdBy'] as String? ?? '',
       customColumns: (json['customColumns'] as List<dynamic>?)
               ?.map((e) => EventColumn.fromJson(e as Map<String, dynamic>))
@@ -48,6 +49,7 @@ Map<String, dynamic> _$EventToJson(Event instance) => <String, dynamic>{
       'customColumns': instance.customColumns,
       'staticValues': instance.staticValues,
       'exportFormat': _$ExportFormatEnumMap[instance.exportFormat]!,
+      'groupId': instance.groupId,
     };
 
 const _$ExportFormatEnumMap = {

@@ -11,6 +11,10 @@ class Student {
   final String program;
   final String year;
   final bool active;
+  // Photo fields are populated by the backend's checkStudentPhotos pass;
+  // photoUrl is a SAS link into the student-photos blob container.
+  final String? photoUrl;
+  final bool hasPhoto;
 
   const Student({
     required this.studentId,
@@ -20,6 +24,8 @@ class Student {
     this.program = '',
     this.year = '',
     this.active = true,
+    this.photoUrl,
+    this.hasPhoto = false,
   });
 
   factory Student.fromJson(Map<String, dynamic> json) => _$StudentFromJson(json);
@@ -58,6 +64,8 @@ class Student {
     String? program,
     String? year,
     bool? active,
+    String? photoUrl,
+    bool? hasPhoto,
   }) {
     return Student(
       studentId: studentId ?? this.studentId,
@@ -67,6 +75,8 @@ class Student {
       program: program ?? this.program,
       year: year ?? this.year,
       active: active ?? this.active,
+      photoUrl: photoUrl ?? this.photoUrl,
+      hasPhoto: hasPhoto ?? this.hasPhoto,
     );
   }
 

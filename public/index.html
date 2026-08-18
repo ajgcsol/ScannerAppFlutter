@@ -464,6 +464,7 @@
                 <button class="tab" onclick="showTab('events')">Events</button>
                 <button class="tab" onclick="showTab('manage')">Manage Students</button>
                 <button class="tab" onclick="showTab('analytics')">Analytics</button>
+                <button class="tab" id="scanlists-tab-btn" onclick="showTab('scanlists')">Scan Lists</button>
             </div>
             
             <div class="tab-content">
@@ -649,6 +650,20 @@
                             <label style="display: block; margin-bottom: 5px; color: #4a5568; font-weight: 600;">Description (Optional)</label>
                             <textarea id="event-description" placeholder="Brief description of the event..." style="width: 100%; padding: 10px; border: 2px solid #e2e8f0; border-radius: 8px; rows: 3; min-height: 80px;"></textarea>
                         </div>
+                        <div style="margin-bottom: 20px; background: #edf2f7; border-radius: 8px; padding: 15px;">
+                            <label style="display: flex; align-items: center; gap: 8px; color: #2d3748; font-weight: 600; cursor: pointer;">
+                                <input type="checkbox" id="event-is-ccc" onchange="document.getElementById('ccc-id-row').style.display = this.checked ? 'block' : 'none'">
+                                Cross-Cultural Competency event (exports two SIS files)
+                            </label>
+                            <div id="ccc-id-row" style="display: none; margin-top: 12px;">
+                                <label style="display: block; margin-bottom: 5px; color: #4a5568; font-weight: 600;">CCC Event ID</label>
+                                <input type="number" id="event-ccc-id" placeholder="e.g., 492" style="width: 100%; padding: 10px; border: 2px solid #e2e8f0; border-radius: 8px;">
+                                <p style="color: #718096; font-size: 0.85rem; margin-top: 6px;">
+                                    The Event Number above is used as the Professionalism Series (PS) ID;
+                                    this second ID is used for the Cross-Cultural Competency file.
+                                </p>
+                            </div>
+                        </div>
                         <div style="text-align: right;">
                             <button class="btn btn-secondary" onclick="hideNewEventForm()">Cancel</button>
                             <button class="btn btn-primary" onclick="createNewEvent()" id="create-event-btn">Create Event</button>
@@ -663,6 +678,20 @@
                     </div>
                 </div>
                 
+                <!-- Scan Lists Tab (group scan lists: raw badge codes only) -->
+                <div id="scanlists-tab" class="tab-pane">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                        <h2 style="color: #2d3748;">Scan Lists</h2>
+                        <button class="btn btn-primary" onclick="createScanList()">+ New Scan List</button>
+                    </div>
+                    <p style="color: #718096; font-size: 0.9rem; margin-bottom: 20px;">
+                        Simple badge-scan lists for your group: scanned QR codes with time and notes.
+                        Export or email the deduplicated list to your group at any time.
+                    </p>
+                    <div id="scanlists-container" style="display: grid; gap: 12px;">Loading…</div>
+                    <div id="scanlist-detail" style="display: none; margin-top: 24px;"></div>
+                </div>
+
                 <!-- Manage Tab -->
                 <div id="manage-tab" class="tab-pane">
                     <h2 style="margin-bottom: 30px; color: #2d3748;">Manage Students</h2>
@@ -716,25 +745,11 @@
                     </div>
                     
                     <div id="students-table-container">
-                        <table class="preview-table" id="students-table">
-                            <thead>
-                                <tr>
-                                    <th>Photo</th>
-                                    <th>Student ID</th>
-                                    <th>First Name</th>
-                                    <th>Last Name</th>
-                                    <th>Email</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="students-tbody">
-                                <tr>
-                                    <td colspan="5" style="text-align: center; padding: 40px; color: #718096;">
-                                        Loading student data...
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                        <div id="students-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px;">
+                            <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #718096;">
+                                Loading student data...
+                            </div>
+                        </div>
                     </div>
                     
                     <div style="display: flex; justify-content: space-between; align-items: center; margin: 20px 0;">
@@ -893,14 +908,24 @@
     <!-- Authentication Libraries -->
     <script src="https://alcdn.msauth.net/browser/2.38.1/js/msal-browser.min.js"></script>
     
-    <!-- Firebase Libraries -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+    <!-- Azure backend. azure-db.js provides the firebase.firestore() surface
+         admin-portal.js is written against, backed by Azure Functions and
+         Cosmos DB. The Firebase SDK bundles are deliberately not loaded: they
+         would overwrite window.firebase and re-point data calls at the dead
+         Firestore project. -->
+    <script>
+      window.INSESSION_CONFIG = {
+        apiBase: "https://insession-api-fc.azurewebsites.net",
+        clientId: "cd8d142c-8a24-40f3-ac2e-7f2da60e2965"
+      };
+    </script>
+    <script src="/azure-db.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- JSZip: bundles the paired PS + CCC SIS export files into one download -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     
     <!-- Application Scripts -->
-    <script src="auth.js"></script>
-    <script src="admin-portal.js"></script>
+    <script src="/auth.js"></script>
+    <script src="/admin-portal.js"></script>
 </body>
 </html>

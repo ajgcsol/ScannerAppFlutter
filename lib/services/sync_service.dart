@@ -150,12 +150,18 @@ class SyncService {
     try {
       debugPrint('🔄 SYNC: Fetching students from Firebase');
       final students = await _firebaseService.getStudents();
-      
-      for (final student in students) {
-        await _databaseService.insertStudent(student);
+
+      if (students.isEmpty) {
+        // A failed or empty fetch must never wipe the offline roster.
+        debugPrint('🔄 SYNC: Server returned no students; keeping local cache');
+        return;
       }
-      
-      debugPrint('🔄 SYNC: Synced ${students.length} students to local database');
+
+      // Full replace: students removed on the server disappear locally too,
+      // instead of accumulating forever (the old behavior only inserted).
+      await _databaseService.replaceAllStudents(students);
+
+      debugPrint('🔄 SYNC: Replaced local roster with ${students.length} students');
     } catch (e) {
       debugPrint('🔄 SYNC: Error syncing students: $e');
     }

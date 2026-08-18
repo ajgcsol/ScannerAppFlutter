@@ -5,6 +5,7 @@ import '../models/event.dart';
 import '../models/student.dart';
 import '../models/scan.dart';
 import '../services/scanner_service.dart';
+import '../services/group_session.dart';
 import '../services/sync_service.dart';
 import '../services/firebase_service.dart';
 import '../services/queue_sync_service.dart';
@@ -255,16 +256,44 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       }).toList();
       
       // Use filtered events for the available events list, but keep all events if no active real events found
-      final eventsToShow = filteredEvents.isNotEmpty ? filteredEvents : events;
+      var eventsToShow = filteredEvents.isNotEmpty ? filteredEvents : events;
+      var allForSelector = events;
+
+      // Department scan lists: a signed-in group (e.g. Admissions) sees ONLY
+      // its own lists; everyone else sees only school-wide attendance events.
+      if (GroupSession.groupMode) {
+        eventsToShow = events.where((e) => e.groupId == GroupSession.groupId).toList();
+        allForSelector = eventsToShow;
+      } else {
+        eventsToShow = eventsToShow.where((e) => e.groupId == null).toList();
+        allForSelector = events.where((e) => e.groupId == null).toList();
+      }
+
+      // Keep the current selection only if it's still visible in this mode.
+      Event? effectiveCurrent = selectedEvent;
+      final currentId = effectiveCurrent?.id;
+      if (currentId != null && !allForSelector.any((e) => e.id == currentId)) {
+        effectiveCurrent = eventsToShow.isNotEmpty ? eventsToShow.first : null;
+      }
+
       state = state.copyWith(
-        availableEvents: eventsToShow, 
-        allEvents: events, // Store complete unfiltered list for event selector dialog
-        currentEvent: selectedEvent
+        availableEvents: eventsToShow,
+        allEvents: allForSelector,
+        currentEvent: effectiveCurrent
       );
     } else {
       debugPrint('📱 No events found, setting empty list');
       state = state.copyWith(availableEvents: [], allEvents: []);
     }
+  }
+
+  Future<void> refreshCurrentEventScans() async {
+    await _loadScansForCurrentEvent();
+  }
+
+  Future<void> refreshGroupSession() async {
+    await GroupSession.load();
+    await loadEvents();
   }
 
   Future<void> forceRefreshEvents() async {
@@ -394,7 +423,33 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
 
   Future<void> _processScanResult(ScanResult scanResult) async {
     debugPrint('📱 SCAN_PROCESS: _processScanResult started with code: ${scanResult.code}');
-    
+
+    // Prospect mode (department scan lists): every badge counts. No roster
+    // lookup, no "Student Not Found" errors, no verification dialogs — scan,
+    // record, next person. Duplicates are ignored silently.
+    if (GroupSession.groupMode) {
+      final code = scanResult.code.trim();
+      if (code.isEmpty) return;
+      if (state.scans.any((s) => s.studentId == code)) {
+        debugPrint('📱 SCAN_PROCESS: duplicate badge $code ignored (prospect mode)');
+        return;
+      }
+      final prospectScan = Scan(
+        studentId: code,
+        timestamp: scanResult.timestamp,
+        studentName: 'Badge $code',
+        studentEmail: '',
+      );
+      await _scannerService.recordScan(
+        state.currentEvent!.id,
+        prospectScan,
+        eventNumber: state.currentEvent!.eventNumber,
+      );
+      state = state.copyWith(scans: [prospectScan, ...state.scans]);
+      debugPrint('📱 SCAN_PROCESS: prospect badge recorded: $code');
+      return;
+    }
+
     try {
       debugPrint('📱 SCAN_PROCESS: Calling getStudentById...');
       final student = await _scannerService.getStudentById(scanResult.code);
@@ -491,6 +546,11 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
   }
 
   void showEventSelector() {
+    // Self-heal: if a dismissal path ever left the flag latched true, pulse it
+    // so the UI listener still sees a false->true transition and opens.
+    if (state.showEventSelector) {
+      state = state.copyWith(showEventSelector: false);
+    }
     state = state.copyWith(showEventSelector: true);
   }
 

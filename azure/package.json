@@ -1,0 +1,22 @@
+{
+  "name": "insession-azure-functions",
+  "version": "1.0.0",
+  "description": "InSession attendance backend on Azure Functions + Cosmos DB",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "func start",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "@azure/cosmos": "^4.1.1",
+    "@azure/functions": "^4.5.1",
+    "@azure/identity": "^4.4.1",
+    "@azure/storage-blob": "^12.24.0",
+    "@azure/storage-queue": "^12.30.0",
+    "jsonwebtoken": "^9.0.3",
+    "jwks-rsa": "^3.2.2"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

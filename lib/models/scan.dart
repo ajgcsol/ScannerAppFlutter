@@ -3,12 +3,18 @@ class Scan {
   final DateTime timestamp;
   final String studentName;
   final String studentEmail;
+  /// Server document id — needed to attach notes to a specific scan.
+  final String? recordId;
+  /// Free-text note (prospect scan lists).
+  final String? note;
 
   const Scan({
     required this.studentId,
     required this.timestamp,
     required this.studentName,
     required this.studentEmail,
+    this.recordId,
+    this.note,
   });
 
   @override

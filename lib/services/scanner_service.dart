@@ -248,6 +248,8 @@ class ScannerService {
           timestamp: record.timestamp,
           studentName: student?.fullName ?? 'Unknown Student',
           studentEmail: student?.email ?? '',
+          recordId: record.id,
+          note: record.note,
         );
       }).toList();
       
@@ -268,6 +270,8 @@ class ScannerService {
               timestamp: record.timestamp,
               studentName: student?.fullName ?? 'Unknown Student',
               studentEmail: student?.email ?? '',
+              recordId: record.id,
+              note: record.note,
             );
           }).toList();
           
@@ -285,6 +289,8 @@ class ScannerService {
                   timestamp: record.timestamp,
                   studentName: student?.fullName ?? 'Unknown Student',
                   studentEmail: student?.email ?? '',
+                  recordId: record.id,
+                  note: record.note,
                 );
               });
           

@@ -14,6 +14,8 @@ Student _$StudentFromJson(Map<String, dynamic> json) => Student(
       program: json['program'] as String? ?? '',
       year: json['year'] as String? ?? '',
       active: json['active'] as bool? ?? true,
+      photoUrl: json['photoUrl'] as String?,
+      hasPhoto: json['hasPhoto'] as bool? ?? false,
     );
 
 Map<String, dynamic> _$StudentToJson(Student instance) => <String, dynamic>{
@@ -24,4 +26,6 @@ Map<String, dynamic> _$StudentToJson(Student instance) => <String, dynamic>{
       'program': instance.program,
       'year': instance.year,
       'active': instance.active,
+      'photoUrl': instance.photoUrl,
+      'hasPhoto': instance.hasPhoto,
     };

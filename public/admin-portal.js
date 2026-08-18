@@ -1,15 +1,8 @@
-// Firebase configuration
-const firebaseConfig = {
-    apiKey: "AIzaSyCC9yAWbYIy56q2jLWkTyRG4pSPNay1KK0",
-    authDomain: "scannerappfb.firebaseapp.com",
-    projectId: "scannerappfb",
-    storageBucket: "scannerappfb.firebasestorage.app",
-    messagingSenderId: "339011672490",
-    appId: "1:339011672490:android:0048a03844ebdb509273d3"
-};
-
-// Initialize Firebase
-firebase.initializeApp(firebaseConfig);
+// Backend is Azure Functions + Cosmos DB. azure-db.js (loaded first) supplies
+// the firebase.firestore() compat surface this file is written against, so the
+// data access below is unchanged. Connection details live in
+// window.INSESSION_CONFIG in index.html.
+firebase.initializeApp();
 const db = firebase.firestore();
 const storage = firebase.storage();
 
@@ -230,7 +223,7 @@ async function loadStudentData() {
         console.log('Loading student data with photo information...');
         
         // Use the new API that includes photo data
-        const response = await fetch('https://us-central1-scannerappfb.cloudfunctions.net/getStudentsWithPhotos?includePhotos=true');
+        const response = await fetch('https://insession-api-fc.azurewebsites.net/getStudentsWithPhotos?includePhotos=true');
         
         if (!response.ok) {
             throw new Error('Failed to fetch student data');
@@ -269,7 +262,7 @@ async function loadStudentData() {
     }
 }
 
-function displayStudents(students) {
+function displayStudentsTableLegacy(students) { // superseded by the card renderer below
     // Try both possible tbody IDs for compatibility
     const tbody = document.getElementById('students-tbody') || document.querySelector('#students-table tbody');
     
@@ -827,11 +820,12 @@ async function loadEvents() {
             ...doc.data()
         }));
         
-        // Sort events by creation date (most recent first) on client side
+        // Chronological: earliest event date first, matching the iOS app.
+        // Events without a date sort to the end by creation time.
         events.sort((a, b) => {
-            const dateA = a.createdAt ? a.createdAt.seconds : 0;
-            const dateB = b.createdAt ? b.createdAt.seconds : 0;
-            return dateB - dateA;
+            const dateA = tsToMillis(a.date) || (8.64e15 + tsToMillis(a.createdAt));
+            const dateB = tsToMillis(b.date) || (8.64e15 + tsToMillis(b.createdAt));
+            return dateA - dateB;
         });
         
         // Store original events for filtering
@@ -869,7 +863,8 @@ function displayEvents(events) {
     window.allEvents = events;
     
     const eventsHTML = events.map(event => {
-        const createdDate = event.createdAt ? new Date(event.createdAt.seconds * 1000).toLocaleDateString() : 'Unknown';
+        const createdDate = tsToMillis(event.createdAt) ? new Date(tsToMillis(event.createdAt)).toLocaleDateString() : 'Unknown';
+        const eventDate = tsToMillis(event.date) ? new Date(tsToMillis(event.date)).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }) : 'No date';
         const isActive = event.isActive ? '✅ Active' : '⏸️ Inactive';
         
         return `
@@ -878,18 +873,27 @@ function displayEvents(events) {
                     <div style="flex: 1;">
                         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
                             <h3 style="color: #2d3748; margin: 0;">Event #${event.eventNumber}: ${event.name}</h3>
+                            ${event.isCCC ? `<span style="background: #bee3f8; color: #2a4365; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 600;">PS #${event.eventNumber} + CCC #${event.cccEventId}</span>` : ''}
                             <span style="background: ${event.isActive ? '#c6f6d5' : '#fed7d7'}; color: ${event.isActive ? '#22543d' : '#742a2a'}; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 600;">${isActive}</span>
                         </div>
                         ${event.description ? `<p style="color: #718096; margin: 5px 0; font-size: 0.95rem;">${event.description}</p>` : ''}
-                        <div style="color: #4a5568; font-size: 0.85rem;">
-                            <span>Created: ${createdDate}</span>
+                        <div style="color: #4a5568; font-size: 0.95rem; font-weight: 600;">
+                            📅 ${eventDate}
+                            <span style="font-weight: 400; color: #a0aec0; font-size: 0.8rem; margin-left: 10px;">created ${createdDate}</span>
                         </div>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
                         <select id="action-${event.id}" class="btn btn-secondary" style="padding: 8px 12px; font-size: 0.9rem; cursor: pointer;">
                             <option value="">Select Action...</option>
                             <option value="view">View Scans</option>
-                            <option value="export-text">Export Text</option>
+                            <option value="export-text-new">${event.isCCC ? 'Export SIS Files (NEW since last export, zip)' : 'Export Text (NEW since last export)'}</option>
+                            <option value="export-text">${event.isCCC ? 'Export SIS Files (Add ALL, zip)' : 'Export Text (Add ALL)'}</option>
+                            <option value="export-text-remove">${event.isCCC ? 'Export SIS Files (Removal, zip)' : 'Export Text (Removal)'}</option>
+                            ${event.isCCC ? `
+                            <option value="export-text-ps">Export PS File Only (Add)</option>
+                            <option value="export-text-ccc">Export CCC File Only (Add)</option>
+                            <option value="export-text-ps-remove">Export PS File Only (Removal)</option>
+                            <option value="export-text-ccc-remove">Export CCC File Only (Removal)</option>` : ''}
                             <option value="export-xlsx">Export XLSX</option>
                             <option value="export-errors">Export Errors</option>
                             <option value="edit-id">Edit Event ID</option>
@@ -929,6 +933,24 @@ function executeEventAction(eventId, eventNumber, eventName, isActive) {
             break;
         case 'export-text':
             exportEventText(eventId);
+            break;
+        case 'export-text-new':
+            exportEventText(eventId, { newOnly: true });
+            break;
+        case 'export-text-remove':
+            exportEventText(eventId, { flag: '0' });
+            break;
+        case 'export-text-ps':
+            exportEventText(eventId, { only: 'ps' });
+            break;
+        case 'export-text-ccc':
+            exportEventText(eventId, { only: 'ccc' });
+            break;
+        case 'export-text-ps-remove':
+            exportEventText(eventId, { only: 'ps', flag: '0' });
+            break;
+        case 'export-text-ccc-remove':
+            exportEventText(eventId, { only: 'ccc', flag: '0' });
             break;
         case 'export-xlsx':
             exportEventXLSX(eventId);
@@ -970,7 +992,7 @@ function applyEventFilters() {
             (event.description && event.description.toLowerCase().includes(searchTerm));
         
         // Year filter
-        const eventYear = event.createdAt ? new Date(event.createdAt.seconds * 1000).getFullYear().toString() : null;
+        const eventYear = tsToMillis(event.createdAt) ? new Date(tsToMillis(event.createdAt)).getFullYear().toString() : null;
         const matchesYear = yearFilter === 'all' || eventYear === yearFilter;
         
         // Status filter
@@ -995,7 +1017,7 @@ function populateYearFilter(events) {
     
     events.forEach(event => {
         if (event.createdAt) {
-            const year = new Date(event.createdAt.seconds * 1000).getFullYear();
+            const year = new Date(tsToMillis(event.createdAt) || Date.now()).getFullYear();
             years.add(year);
         }
     });
@@ -1021,15 +1043,28 @@ function hideNewEventForm() {
     document.getElementById('event-number').value = '';
     document.getElementById('event-name').value = '';
     document.getElementById('event-description').value = '';
+    document.getElementById('event-is-ccc').checked = false;
+    document.getElementById('event-ccc-id').value = '';
+    document.getElementById('ccc-id-row').style.display = 'none';
 }
 
 async function createNewEvent() {
     const eventNumber = parseInt(document.getElementById('event-number').value);
     const eventName = document.getElementById('event-name').value.trim();
     const eventDescription = document.getElementById('event-description').value.trim();
-    
+    const isCCC = document.getElementById('event-is-ccc').checked;
+    const cccEventId = parseInt(document.getElementById('event-ccc-id').value);
+
     if (!eventNumber || !eventName) {
         showMessage('Please provide both event number and name.', 'error');
+        return;
+    }
+    if (isCCC && !cccEventId) {
+        showMessage('CCC events need a CCC Event ID (the Event Number is used as the PS ID).', 'error');
+        return;
+    }
+    if (isCCC && cccEventId === eventNumber) {
+        showMessage('The CCC Event ID must differ from the Event Number (PS ID).', 'error');
         return;
     }
     
@@ -1056,7 +1091,9 @@ async function createNewEvent() {
             description: eventDescription,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             isActive: true,
-            exportFormat: 'TEXT_DELIMITED'
+            exportFormat: 'TEXT_DELIMITED',
+            isCCC: isCCC,
+            cccEventId: isCCC ? cccEventId : null
         };
         
         await db.collection('events').add(eventDoc);
@@ -1189,7 +1226,18 @@ async function viewEventReport(eventId) {
     }
 }
 
-async function exportEventText(eventId) {
+// SONIS fixed-width attendance export.
+//
+// Line format (must match SONIS exactly): "{sisEventId} {studentId}{flag}"
+//   e.g. "491 AL13777291" = event 491, student AL1377729, flag 1 (add).
+// flag '1' adds the attendance record in SONIS; flag '0' removes it (for
+// duplicate uploads or event-setup mistakes).
+//
+// Cross-Cultural Competency events carry two SIS ids — the eventNumber acts
+// as the Professionalism Series (PS) id and cccEventId as the CCC id — and
+// export as a zip holding one file per id, or a single file via opts.only.
+async function exportEventText(eventId, opts = {}) {
+    const flag = opts.flag === '0' ? '0' : '1';
     try {
         showMessage('Preparing text export...', 'info');
         
@@ -1276,15 +1324,108 @@ async function exportEventText(eventId) {
         
         // Convert to sorted array and generate text content
         const sortedIds = Array.from(uniqueStudentIds).sort();
-        const textContent = sortedIds
-            .map(studentId => `${event.eventNumber} ${studentId}1`)
-            .join('\n');
-        
+
+        // The export ledger records every batch sent to SONIS, so "new only"
+        // exports can exclude students whose attendance is already posted —
+        // re-running an export can never double-post attendance.
+        const ledgerSnapshot = await db.collection('sonis_exports')
+            .where('eventId', '==', eventId).get();
+        const batches = ledgerSnapshot.docs.map(d => d.data())
+            .sort((a, b) => String(a.exportedAt).localeCompare(String(b.exportedAt)));
+        const exportedSetFor = (sisId) => {
+            const set = new Set();
+            for (const b of batches) {
+                if (String(b.sisId) !== String(sisId)) continue;
+                for (const sid of (b.studentIds || [])) {
+                    if (b.flag === '0') set.delete(sid); else set.add(sid);
+                }
+            }
+            return set;
+        };
+        const idsFor = (sisId) => {
+            if (!opts.newOnly) return sortedIds;
+            const already = exportedSetFor(sisId);
+            return sortedIds.filter(id => !already.has(id));
+        };
+        const recordBatch = async (sisId, ids, fname) => {
+            try {
+                await db.collection('sonis_exports').add({
+                    eventId: eventId,
+                    sisId: sisId,
+                    flag: flag,
+                    studentIds: ids,
+                    count: ids.length,
+                    filename: fname,
+                    newOnly: !!opts.newOnly,
+                    exportedAt: new Date().toISOString(),
+                });
+            } catch (e) {
+                console.error('Failed to record export batch:', e);
+                showMessage('Warning: export downloaded but the ledger update failed. "New only" exports may over-include until the next successful export.', 'error');
+            }
+        };
+
+        // CRLF line endings and a trailing terminator match the SONIS sample
+        // file byte-for-byte (verified against a hexdump of a real upload).
+        const buildContent = (sisId, ids) => ids
+            .map(studentId => `${sisId} ${studentId}${flag}`)
+            .join('\r\n') + '\r\n';
+
         const today = new Date();
         const dateString = `${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}${today.getFullYear().toString().substr(2)}`;
-        const filename = `Event_${event.eventNumber}_${dateString}.txt`;
-        
-        downloadTextFile(textContent, filename);
+        const suffix = flag === '0' ? '_REMOVE' : '';
+
+        const newTag = opts.newOnly ? '_NEW' : '';
+        let filename;
+        if (event.isCCC && event.cccEventId && !opts.only) {
+            // Both SIS files, bundled so neither upload gets forgotten.
+            const psIds = idsFor(event.eventNumber);
+            const cccIds = idsFor(event.cccEventId);
+            if (psIds.length === 0 && cccIds.length === 0) {
+                showMessage('Nothing new to export: every scanned student is already in SONIS for both IDs.', 'info');
+                return;
+            }
+            const psName = `Event_${event.eventNumber}_PS_${dateString}${newTag}${suffix}.txt`;
+            const cccName = `Event_${event.cccEventId}_CCC_${dateString}${newTag}${suffix}.txt`;
+            const zip = new JSZip();
+            if (psIds.length) zip.file(psName, buildContent(event.eventNumber, psIds));
+            if (cccIds.length) zip.file(cccName, buildContent(event.cccEventId, cccIds));
+            filename = `Event_${event.eventNumber}_PS_CCC_${dateString}${newTag}${suffix}.zip`;
+            const blob = await zip.generateAsync({ type: 'blob' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            if (psIds.length) await recordBatch(event.eventNumber, psIds, psName);
+            if (cccIds.length) await recordBatch(event.cccEventId, cccIds, cccName);
+        } else if (opts.only === 'ccc') {
+            if (!event.isCCC || !event.cccEventId) {
+                showMessage('This event has no CCC Event ID configured.', 'error');
+                return;
+            }
+            const ids = idsFor(event.cccEventId);
+            if (ids.length === 0) {
+                showMessage('Nothing new to export for the CC ID.', 'info');
+                return;
+            }
+            filename = `Event_${event.cccEventId}_CCC_${dateString}${newTag}${suffix}.txt`;
+            downloadTextFile(buildContent(event.cccEventId, ids), filename);
+            await recordBatch(event.cccEventId, ids, filename);
+        } else {
+            const tag = (event.isCCC && opts.only === 'ps') ? '_PS' : '';
+            const ids = idsFor(event.eventNumber);
+            if (ids.length === 0) {
+                showMessage('Nothing new to export: every scanned student is already in SONIS.', 'info');
+                return;
+            }
+            filename = `Event_${event.eventNumber}${tag}_${dateString}${newTag}${suffix}.txt`;
+            downloadTextFile(buildContent(event.eventNumber, ids), filename);
+            await recordBatch(event.eventNumber, ids, filename);
+        }
         
         const totalScans = flatScansSnapshot.size + nestedScansSnapshot.size;
         const duplicatesAndErrors = totalScans - sortedIds.length;
@@ -1631,7 +1772,7 @@ async function deleteEvent(eventId, eventName) {
         
         // Call the Firebase Function API to delete the event
         // This will also create a deletion notification for mobile apps
-        const response = await fetch('https://us-central1-scannerappfb.cloudfunctions.net/deleteEvent', {
+        const response = await fetch('https://insession-api-fc.azurewebsites.net/deleteEvent', {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/json',
@@ -2242,7 +2383,7 @@ async function viewStudentDetails(studentId) {
                     <p><strong>Program:</strong> ${student.program || 'Not specified'}</p>
                     <p><strong>Year:</strong> ${student.year || 'Not specified'}</p>
                     <p><strong>Status:</strong> ${student.active ? 'Active' : 'Inactive'}</p>
-                    <p><strong>Added:</strong> ${student.uploadedAt ? new Date(student.uploadedAt.seconds * 1000).toLocaleString() : 'Unknown'}</p>
+                    <p><strong>Added:</strong> ${tsToMillis(student.uploadedAt) ? new Date(tsToMillis(student.uploadedAt)).toLocaleString() : 'Unknown'}</p>
                     <p><strong>Added Method:</strong> ${student.addedManually ? 'Manual Entry' : 'CSV Upload'}</p>
                 </div>
             </div>
@@ -3039,7 +3180,7 @@ async function checkStudentPhotos() {
         checkBtn.textContent = 'Checking...';
         checkBtn.disabled = true;
         
-        const response = await fetch('https://us-central1-scannerappfb.cloudfunctions.net/checkStudentPhotos', {
+        const response = await fetch('https://insession-api-fc.azurewebsites.net/checkStudentPhotos', {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
@@ -3090,7 +3231,7 @@ async function filterStudentsByPhoto() {
         }
         
         // Build URL with photo filter
-        let url = 'https://us-central1-scannerappfb.cloudfunctions.net/getStudentsWithPhotos?includePhotos=true';
+        let url = 'https://insession-api-fc.azurewebsites.net/getStudentsWithPhotos?includePhotos=true';
         if (hasPhotoParam) {
             url += `&hasPhoto=${hasPhotoParam}`;
         }
@@ -3151,7 +3292,7 @@ function updatePhotoFilterCount(count = null, filter = null) {
     }
 }
 
-function displayStudents(students) {
+function displayStudentsTableLegacy2(students) { // superseded by the card renderer below
     // Try both possible tbody IDs for compatibility
     const tbody = document.getElementById('students-tbody') || document.querySelector('#students-table tbody');
     
@@ -3255,3 +3396,447 @@ function setupDragAndDrop() {
         });
     }
 }
+
+
+// ============================================================================
+// Timestamp tolerance: Firestore emitted {seconds}; Cosmos stores ISO strings;
+// scans store epoch ms. Every date read goes through here.
+// ============================================================================
+function tsToMillis(value) {
+    if (!value) return 0;
+    if (typeof value === 'number') return value < 1e12 ? value * 1000 : value;
+    if (typeof value === 'object' && value.seconds != null) return value.seconds * 1000;
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+// ============================================================================
+// Student cards — photo, identity, per-event attendance with SONIS export
+// status, and manual add-to-event for administrators adding people in post.
+// ============================================================================
+function displayStudents(students) {
+    const container = document.getElementById('students-cards');
+    if (!container) return;
+
+    if (!students || students.length === 0) {
+        container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #718096;">No students found.</div>';
+        return;
+    }
+
+    container.innerHTML = students.map(student => {
+        const initials = `${(student.firstName || '?').charAt(0)}${(student.lastName || '?').charAt(0)}`;
+        const photo = (student.hasPhoto && student.photoUrl)
+            ? `<img src="${student.photoUrl}" alt="" style="width: 72px; height: 72px; border-radius: 14px; object-fit: cover;">`
+            : `<div style="width: 72px; height: 72px; border-radius: 14px; background: #e8edf7; display: flex; align-items: center; justify-content: center; color: #1e3c72; font-size: 24px; font-weight: 700;">${initials}</div>`;
+        return `
+            <div class="student-card" id="card-${student.studentId}" style="background: white; border: 2px solid #e2e8f0; border-radius: 14px; padding: 16px;">
+                <div style="display: flex; gap: 14px; align-items: center;">
+                    ${photo}
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="font-weight: 700; font-size: 1.05rem; color: #2d3748;">${student.firstName || ''} ${student.lastName || ''}</div>
+                        <div style="color: #4a5568; font-size: 0.85rem; font-weight: 600;">${student.studentId}</div>
+                        <div style="color: #718096; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${student.email || ''}</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    <button class="btn btn-secondary" style="flex: 1; padding: 7px; font-size: 0.82rem;"
+                            onclick="toggleStudentAttendance('${student.studentId}')">Attendance</button>
+                    <button class="btn btn-primary" style="flex: 1; padding: 7px; font-size: 0.82rem;"
+                            onclick="showAddToEvent('${student.studentId}')">Add to Event</button>
+                    <button class="btn" style="background: #fee2e2; color: #b91c1c; padding: 7px 10px; font-size: 0.82rem;"
+                            onclick="deleteStudent('${student.id}', '${(student.firstName || '').replace(/'/g, "\\'")}', '${(student.lastName || '').replace(/'/g, "\\'")}')">✕</button>
+                </div>
+                <div id="attendance-${student.studentId}" style="display: none; margin-top: 12px; border-top: 1px solid #e2e8f0; padding-top: 10px;"></div>
+                <div id="addevent-${student.studentId}" style="display: none; margin-top: 12px; border-top: 1px solid #e2e8f0; padding-top: 10px;"></div>
+            </div>`;
+    }).join('');
+}
+
+async function ensureEventsLoaded() {
+    if (window.allEvents && window.allEvents.length) return window.allEvents;
+    const snapshot = await db.collection('events').get();
+    window.allEvents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    return window.allEvents;
+}
+
+async function toggleStudentAttendance(studentId) {
+    const panel = document.getElementById(`attendance-${studentId}`);
+    if (!panel) return;
+    if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+    panel.innerHTML = '<div style="color: #718096; font-size: 0.85rem;">Loading attendance…</div>';
+
+    try {
+        const [events, scansSnapshot] = await Promise.all([
+            ensureEventsLoaded(),
+            db.collection('scans').where('studentId', '==', studentId).get(),
+        ]);
+        const eventById = Object.fromEntries(events.map(e => [e.id, e]));
+
+        // One row per event, keeping the earliest scan time.
+        const byEvent = new Map();
+        scansSnapshot.docs.forEach(doc => {
+            const scan = doc.data();
+            const key = scan.listId || scan.eventId;
+            if (!key) return;
+            const t = tsToMillis(scan.timestamp);
+            if (!byEvent.has(key) || t < byEvent.get(key)) byEvent.set(key, t);
+        });
+
+        if (byEvent.size === 0) {
+            panel.innerHTML = '<div style="color: #718096; font-size: 0.85rem;">No attendance recorded.</div>';
+            return;
+        }
+
+        // SONIS export status per event, from the export ledger.
+        const rows = [];
+        for (const [eventId, firstScan] of [...byEvent.entries()].sort((a, b) => b[1] - a[1])) {
+            const event = eventById[eventId];
+            const name = event ? `#${event.eventNumber} ${event.name}` : `(deleted event ${eventId.slice(0, 8)}…)`;
+            let badge = '<span style="color: #b45309; background: #fef3c7; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 600;">Not in SONIS yet</span>';
+            try {
+                const ledger = await db.collection('sonis_exports').where('eventId', '==', eventId).get();
+                const batches = ledger.docs.map(d => d.data())
+                    .sort((a, b) => String(a.exportedAt).localeCompare(String(b.exportedAt)));
+                const posted = new Set();
+                for (const b of batches) {
+                    for (const sid of (b.studentIds || [])) {
+                        if (b.flag === '0') posted.delete(sid); else posted.add(sid);
+                    }
+                }
+                if (posted.has(studentId)) {
+                    badge = '<span style="color: #166534; background: #dcfce7; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 600;">✓ Exported to SONIS</span>';
+                }
+            } catch (e) { console.error('ledger check failed', e); }
+            rows.push(`
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 0; font-size: 0.82rem;">
+                    <div style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        ${name}
+                        <span style="color: #a0aec0;"> · ${firstScan ? new Date(firstScan).toLocaleDateString() : ''}</span>
+                    </div>
+                    ${badge}
+                </div>`);
+        }
+        panel.innerHTML = rows.join('');
+    } catch (error) {
+        console.error('Error loading attendance:', error);
+        panel.innerHTML = '<div style="color: #b91c1c; font-size: 0.85rem;">Failed to load attendance.</div>';
+    }
+}
+
+async function showAddToEvent(studentId) {
+    const panel = document.getElementById(`addevent-${studentId}`);
+    if (!panel) return;
+    if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+    panel.innerHTML = '<div style="color: #718096; font-size: 0.85rem;">Loading events…</div>';
+
+    const events = (await ensureEventsLoaded())
+        .filter(e => e.isActive !== false)
+        .sort((a, b) => tsToMillis(a.date) - tsToMillis(b.date));
+
+    panel.innerHTML = `
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <select id="addevent-select-${studentId}" style="flex: 1; padding: 7px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.82rem;">
+                ${events.map(e => `<option value="${e.id}">#${e.eventNumber} ${e.name}</option>`).join('')}
+            </select>
+            <button class="btn btn-primary" style="padding: 7px 12px; font-size: 0.82rem;"
+                    onclick="submitAddToEvent('${studentId}')">Add</button>
+        </div>
+        <div style="color: #a0aec0; font-size: 0.72rem; margin-top: 6px;">
+            Records attendance exactly like a scan — the student gets the confirmation email if emails are enabled.
+        </div>`;
+}
+
+async function submitAddToEvent(studentId) {
+    const select = document.getElementById(`addevent-select-${studentId}`);
+    if (!select || !select.value) return;
+    const events = await ensureEventsLoaded();
+    const event = events.find(e => e.id === select.value);
+    if (!event) return;
+    if (!confirm(`Mark ${studentId} as attending "#${event.eventNumber} ${event.name}"?`)) return;
+
+    try {
+        // Same endpoint the scanner uses: dual-structure write, student
+        // enrichment, first-scan email — manual adds behave like real scans.
+        await window.INSESSION_AZURE_DB.apiFetch('/addScanRecord', {
+            method: 'POST',
+            body: {
+                id: 'admin-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2)),
+                eventId: event.id,
+                code: studentId,
+                studentId: studentId,
+                timestamp: Date.now(),
+                deviceId: 'admin_portal',
+                symbology: 'MANUAL',
+            },
+        });
+        showMessage(`Added ${studentId} to #${event.eventNumber} ${event.name}.`, 'success');
+        const panel = document.getElementById(`addevent-${studentId}`);
+        if (panel) panel.style.display = 'none';
+        const att = document.getElementById(`attendance-${studentId}`);
+        if (att && att.style.display !== 'none') { att.style.display = 'none'; toggleStudentAttendance(studentId); }
+    } catch (error) {
+        console.error('Manual add failed:', error);
+        showMessage('Failed to add attendance: ' + error.message, 'error');
+    }
+}
+
+
+// ============================================================================
+// Group Scan Lists — prospect badge scanning (e.g. Admissions on iPads).
+//
+// These are NOT validated attendance lists: codes are prospective students or
+// any other scanned QR badge. No roster lookup, no verified filter, no student
+// identity — just deduplicated codes with first-scan time and an optional
+// note. Export as CSV or email to the whole group.
+// ============================================================================
+
+window.userAccess = null;
+
+async function fetchAccess() {
+    try {
+        window.userAccess = await window.INSESSION_AZURE_DB.apiFetch('/me');
+    } catch (e) {
+        console.error('access lookup failed', e);
+        window.userAccess = null;
+    }
+    return window.userAccess;
+}
+
+// Full portal for admins and Student Affairs members; everyone else
+// authorized (e.g. Admissions) sees only their group scan lists.
+function applyAccessView() {
+    const a = window.userAccess;
+    if (!a) return;
+    const fullAccess = a.isAdmin ||
+        (a.groups || []).some(g => (g.name || '').toLowerCase() === 'student affairs');
+    if (fullAccess) return;
+
+    document.querySelectorAll('.tabs .tab').forEach(tab => {
+        if (tab.id !== 'scanlists-tab-btn') tab.style.display = 'none';
+    });
+    document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+    document.getElementById('scanlists-tab').classList.add('active');
+    document.getElementById('scanlists-tab-btn').classList.add('active');
+    loadScanLists();
+}
+
+function myGroups() {
+    return (window.userAccess && window.userAccess.groups) || [];
+}
+
+async function loadScanLists() {
+    const container = document.getElementById('scanlists-container');
+    if (!container) return;
+    container.innerHTML = 'Loading…';
+    try {
+        if (!window.userAccess) await fetchAccess();
+        const events = await ensureEventsLoaded();
+        const groupIds = new Set(myGroups().map(g => g.id));
+        const isAdmin = window.userAccess && window.userAccess.isAdmin;
+        const lists = events
+            .filter(e => e.groupId && (isAdmin || groupIds.has(e.groupId)))
+            .sort((a, b) => tsToMillis(b.date) - tsToMillis(a.date));
+
+        if (lists.length === 0) {
+            container.innerHTML = '<div style="color: #718096; padding: 30px; text-align: center; background: #f7fafc; border-radius: 12px;">No scan lists yet. Create one to start scanning badges.</div>';
+            return;
+        }
+        const groupName = (id) => (myGroups().find(g => g.id === id) || {}).name || 'group';
+        container.innerHTML = lists.map(e => `
+            <div style="background: white; border: 2px solid #e2e8f0; border-radius: 12px; padding: 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer;"
+                 onclick="openScanList('${e.id}')">
+                <div>
+                    <div style="font-weight: 700; color: #2d3748;">${e.name}</div>
+                    <div style="color: #718096; font-size: 0.85rem;">
+                        ${tsToMillis(e.date) ? new Date(tsToMillis(e.date)).toLocaleDateString(undefined, {timeZone:'UTC'}) : ''}
+                        · ${groupName(e.groupId)}
+                    </div>
+                </div>
+                <span style="color: #1e3c72; font-weight: 600;">Open →</span>
+            </div>`).join('');
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = '<div style="color: #b91c1c;">Failed to load scan lists.</div>';
+    }
+}
+
+async function createScanList() {
+    if (!window.userAccess) await fetchAccess();
+    const groups = myGroups();
+    if (groups.length === 0) { showMessage('You are not in any group.', 'error'); return; }
+
+    const name = prompt('Name for the new scan list (e.g. "Fall Open House 2026"):');
+    if (!name || !name.trim()) return;
+    let group = groups[0];
+    if (groups.length > 1) {
+        const pick = prompt('Which group? ' + groups.map((g, i) => `${i + 1}=${g.name}`).join('  '), '1');
+        group = groups[Math.max(0, Math.min(groups.length - 1, (parseInt(pick) || 1) - 1))];
+    }
+
+    // Group scan lists live in a high number range so they can never collide
+    // with SONIS attendance event ids (5xx).
+    const events = await ensureEventsLoaded();
+    const next = Math.max(9000, ...events.map(e => Number(e.eventNumber) || 0).filter(n => n >= 9000)) + 1;
+
+    try {
+        await window.INSESSION_AZURE_DB.apiFetch('/createEvent', {
+            method: 'POST',
+            body: {
+                name: name.trim(),
+                eventNumber: next,
+                date: new Date().toISOString(),
+                groupId: group.id,
+                createdBy: (window.userAccess && window.userAccess.upn) || 'portal',
+            },
+        });
+        window.allEvents = null; // refresh cache
+        showMessage(`Scan list "${name.trim()}" created for ${group.name}.`, 'success');
+        loadScanLists();
+    } catch (e) {
+        console.error(e);
+        showMessage('Failed to create scan list: ' + e.message, 'error');
+    }
+}
+
+let scanListNoteDocs = {};
+
+async function openScanList(eventId) {
+    const detail = document.getElementById('scanlist-detail');
+    detail.style.display = 'block';
+    detail.innerHTML = '<div style="color: #718096;">Loading scans…</div>';
+
+    try {
+        const events = await ensureEventsLoaded();
+        const event = events.find(e => e.id === eventId);
+
+        const [flatSnap, nestedSnap] = await Promise.all([
+            db.collection('scans').where('listId', '==', eventId).get(),
+            db.collection('lists').doc(eventId).collection('scans').get(),
+        ]);
+
+        // Dedup by CODE — every badge counts once, no validation of any kind.
+        const byCode = new Map();
+        scanListNoteDocs = {};
+        const consider = (doc, source) => {
+            const scan = doc.data();
+            const code = String(scan.code || '').trim();
+            if (!code) return;
+            const t = tsToMillis(scan.timestamp);
+            const existing = byCode.get(code);
+            if (!existing || t < existing.t) {
+                byCode.set(code, { t, note: scan.note || (existing && existing.note) || '', docId: doc.id, source });
+            } else if (!existing.note && scan.note) {
+                existing.note = scan.note;
+            }
+        };
+        flatSnap.docs.forEach(d => consider(d, 'flat'));
+        nestedSnap.docs.forEach(d => consider(d, 'nested'));
+
+        const rows = [...byCode.entries()].sort((a, b) => b[1].t - a[1].t);
+        rows.forEach(([code, info]) => { scanListNoteDocs[code] = info; });
+
+        detail.innerHTML = `
+            <div style="background: white; border: 2px solid #e2e8f0; border-radius: 12px; padding: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px;">
+                    <div>
+                        <h3 style="color: #2d3748; margin: 0;">${event ? event.name : 'Scan list'}</h3>
+                        <div style="color: #718096; font-size: 0.85rem;">${rows.length} unique badge${rows.length === 1 ? '' : 's'} scanned</div>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-secondary" onclick="exportScanListCSV('${eventId}')">Export CSV</button>
+                        <button class="btn btn-primary" onclick="emailScanList('${eventId}', '${event ? event.groupId : ''}')">Email to Group</button>
+                    </div>
+                </div>
+                ${rows.length === 0 ? '<div style="color: #718096; padding: 20px; text-align: center;">No scans yet.</div>' : `
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                    <thead><tr style="text-align: left; color: #4a5568; border-bottom: 2px solid #e2e8f0;">
+                        <th style="padding: 8px;">Badge / QR Code</th>
+                        <th style="padding: 8px;">First Scanned</th>
+                        <th style="padding: 8px; width: 40%;">Note</th>
+                    </tr></thead>
+                    <tbody>
+                        ${rows.map(([code, info]) => `
+                        <tr style="border-bottom: 1px solid #edf2f7;">
+                            <td style="padding: 8px; font-weight: 600;">${code}</td>
+                            <td style="padding: 8px; color: #718096;">${info.t ? new Date(info.t).toLocaleString() : ''}</td>
+                            <td style="padding: 8px;">
+                                <input type="text" value="${(info.note || '').replace(/"/g, '&quot;')}"
+                                       placeholder="Add a note…"
+                                       style="width: 100%; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;"
+                                       onchange="saveScanNote('${eventId}', '${code.replace(/'/g, "\\'")}', this.value)">
+                            </td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`}
+            </div>`;
+        detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {
+        console.error(e);
+        detail.innerHTML = '<div style="color: #b91c1c;">Failed to load scans.</div>';
+    }
+}
+
+async function saveScanNote(eventId, code, note) {
+    try {
+        const info = scanListNoteDocs[code];
+        if (!info) return;
+        if (info.source === 'flat') {
+            await db.collection('scans').doc(info.docId).update({ note: note });
+        } else {
+            await db.collection('lists').doc(eventId).collection('scans').doc(info.docId).update({ note: note });
+        }
+        info.note = note;
+        showMessage('Note saved.', 'success');
+    } catch (e) {
+        console.error(e);
+        showMessage('Failed to save note: ' + e.message, 'error');
+    }
+}
+
+function exportScanListCSV(eventId) {
+    const rows = Object.entries(scanListNoteDocs)
+        .sort((a, b) => a[1].t - b[1].t);
+    const esc = (v) => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+    const csv = ['code,scannedAt,note',
+        ...rows.map(([code, info]) =>
+            [code, info.t ? new Date(info.t).toISOString() : '', info.note || ''].map(esc).join(','))
+    ].join('\r\n') + '\r\n';
+    const today = new Date();
+    const stamp = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+    downloadTextFile(csv, `scan_list_${stamp}.csv`);
+}
+
+async function emailScanList(eventId, groupId) {
+    if (!groupId) { showMessage('This list has no group.', 'error'); return; }
+    if (!confirm('Email the current scan list to every member of the group?')) return;
+    try {
+        const result = await window.INSESSION_AZURE_DB.apiFetch('/emailEventReport', {
+            method: 'POST',
+            body: { eventId: eventId, groupId: groupId },
+        });
+        showMessage(`Sent to ${result.recipients.length} group member${result.recipients.length === 1 ? '' : 's'}.`, 'success');
+    } catch (e) {
+        console.error(e);
+        showMessage('Failed to send: ' + e.message, 'error');
+    }
+}
+
+// Load scan lists when the tab is opened, and gate the portal by access level
+// once sign-in completes.
+(function () {
+    const origShowTab = window.showTab;
+    window.showTab = function (tabName) {
+        origShowTab(tabName);
+        if (tabName === 'scanlists') loadScanLists();
+    };
+    const origInit = window.initializeApp;
+    window.initializeApp = function () {
+        if (origInit) origInit();
+        setTimeout(async () => {
+            await fetchAccess();
+            applyAccessView();
+        }, 300);
+    };
+})();

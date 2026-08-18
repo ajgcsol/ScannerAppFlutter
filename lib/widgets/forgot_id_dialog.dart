@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/student.dart';
 import '../services/scanner_service.dart';
 import '../providers/scanner_provider.dart';
+import 'student_verification_dialog.dart';
 
 class ForgotIdDialog extends ConsumerStatefulWidget {
   final VoidCallback onDismiss;
@@ -106,9 +107,26 @@ class _ForgotIdDialogState extends ConsumerState<ForgotIdDialog> {
     }
   }
 
+  /// Tapping a student shows their photo, name, and email first — the scan is
+  /// only recorded after staff confirms the person matches the picture.
   void _selectStudent(Student student) async {
     debugPrint('🔍 FORGOT_ID: _selectStudent called for ${student.studentId} - ${student.firstName} ${student.lastName}');
-    
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) => StudentVerificationDialog(
+        student: student,
+        onDismiss: () => Navigator.of(dialogContext).pop(false),
+        onConfirm: () => Navigator.of(dialogContext).pop(true),
+      ),
+    );
+
+    if (confirmed != true || !mounted) {
+      debugPrint('🔍 FORGOT_ID: Selection not confirmed, returning to list');
+      return;
+    }
+
     try {
       debugPrint('🔍 FORGOT_ID: Getting scanner notifier...');
       final scannerNotifier = ref.read(scannerProvider.notifier);
@@ -118,15 +136,19 @@ class _ForgotIdDialogState extends ConsumerState<ForgotIdDialog> {
       
       debugPrint('🔍 FORGOT_ID: Successfully added manual scan for ${student.studentId}');
       
-      // Close dialog and trigger success dialog
+      // The confirmation popup already showed the photo and details, so a
+      // second dialog would be redundant — a snackbar confirms the record.
       if (mounted) {
         debugPrint('🔍 FORGOT_ID: Dismissing dialog...');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✓ ${student.fullName} marked as attending'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
+        );
         widget.onDismiss(); // This will handle both dialog close and state reset
-        
-        // Set state to show student success dialog
-        scannerNotifier.showStudentSuccessDialog(student);
-        
-        debugPrint('🔍 FORGOT_ID: Dialog dismissed and success dialog triggered');
+        debugPrint('🔍 FORGOT_ID: Dialog dismissed, snackbar shown');
       }
     } catch (e, stackTrace) {
       debugPrint('🔍 FORGOT_ID: EXCEPTION in _selectStudent: $e');
@@ -162,8 +184,9 @@ class _ForgotIdDialogState extends ConsumerState<ForgotIdDialog> {
                 const Text(
                   'Find Student',
                   style: TextStyle(
-                    fontSize: 20,
+                    fontSize: 24,
                     fontWeight: FontWeight.bold,
+                    letterSpacing: -0.5,
                   ),
                 ),
                 IconButton(
@@ -178,10 +201,10 @@ class _ForgotIdDialogState extends ConsumerState<ForgotIdDialog> {
             // Search Field
             TextField(
               controller: _searchController,
+              style: const TextStyle(fontSize: 17),
               decoration: const InputDecoration(
                 hintText: 'Search by name, ID, or email...',
                 prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
               ),
               autofocus: true,
             ),
@@ -231,38 +254,49 @@ class _ForgotIdDialogState extends ConsumerState<ForgotIdDialog> {
                           itemCount: _filteredStudents.length,
                           itemBuilder: (context, index) {
                             final student = _filteredStudents[index];
+                            final initials =
+                                '${student.firstName.isNotEmpty ? student.firstName[0] : ''}'
+                                '${student.lastName.isNotEmpty ? student.lastName[0] : ''}';
                             return Card(
-                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              margin: const EdgeInsets.symmetric(vertical: 5),
                               child: ListTile(
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
                                 leading: CircleAvatar(
-                                  backgroundColor: Theme.of(context).colorScheme.primary,
+                                  radius: 26,
+                                  backgroundColor:
+                                      Theme.of(context).colorScheme.primary,
+                                  // ID photo when available; initials otherwise.
+                                  foregroundImage: (student.photoUrl != null &&
+                                          student.photoUrl!.isNotEmpty)
+                                      ? NetworkImage(student.photoUrl!)
+                                      : null,
                                   child: Text(
-                                    '${student.firstName[0]}${student.lastName[0]}',
+                                    initials.toUpperCase(),
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.bold,
+                                      fontSize: 17,
                                     ),
                                   ),
                                 ),
                                 title: Text(
                                   '${student.firstName} ${student.lastName}',
-                                  style: const TextStyle(fontWeight: FontWeight.w500),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 17,
+                                  ),
                                 ),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('ID: ${student.studentId}'),
-                                    if (student.email.isNotEmpty)
-                                      Text(
-                                        student.email,
-                                        style: const TextStyle(fontSize: 12),
-                                        overflow: TextOverflow.ellipsis,
-                                        maxLines: 1,
-                                      ),
-                                  ],
+                                subtitle: Text(
+                                  student.email.isNotEmpty
+                                      ? '${student.studentId} · ${student.email}'
+                                      : student.studentId,
+                                  style: const TextStyle(fontSize: 13),
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
                                 ),
-                                isThreeLine: student.email.isNotEmpty,
-                                trailing: const Icon(Icons.arrow_forward_ios),
+                                trailing:
+                                    const Icon(Icons.chevron_right, size: 22),
                                 onTap: () => _selectStudent(student),
                               ),
                             );

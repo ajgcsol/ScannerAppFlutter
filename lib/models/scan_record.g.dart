@@ -17,6 +17,7 @@ ScanRecord _$ScanRecordFromJson(Map<String, dynamic> json) => ScanRecord(
       processed: json['processed'] as bool? ?? false,
       synced: json['synced'] as bool? ?? false,
       metadata: json['metadata'] as Map<String, dynamic>? ?? const {},
+      note: json['note'] as String?,
     );
 
 Map<String, dynamic> _$ScanRecordToJson(ScanRecord instance) =>
@@ -31,6 +32,7 @@ Map<String, dynamic> _$ScanRecordToJson(ScanRecord instance) =>
       'processed': instance.processed,
       'synced': instance.synced,
       'metadata': instance.metadata,
+      'note': instance.note,
     };
 
 ErrorRecord _$ErrorRecordFromJson(Map<String, dynamic> json) => ErrorRecord(

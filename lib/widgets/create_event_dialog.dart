@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../services/group_session.dart';
 import 'package:flutter/services.dart';
 import '../models/event.dart';
 
@@ -92,6 +93,8 @@ class _CreateEventDialogState extends State<CreateEventDialog> {
           description: _descriptionController.text.trim(),
           date: eventDateTime,
           location: _locationController.text.trim(),
+          // Department mode: the new list belongs to the active group.
+          groupId: GroupSession.groupMode ? GroupSession.groupId : null,
         ).copyWith(isActive: _isActive);
 
         widget.onEventCreated(event);

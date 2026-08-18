@@ -22,8 +22,41 @@ class EventSelectorDialog extends StatefulWidget {
 
 class _EventSelectorDialogState extends State<EventSelectorDialog> {
   bool _showAllEvents = false;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchText = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      setState(() => _searchText = _searchController.text.toLowerCase().trim());
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   List<Event> get filteredEvents {
+    var events = _baseEvents;
+
+    if (_searchText.isNotEmpty) {
+      events = events.where((event) {
+        return event.name.toLowerCase().contains(_searchText) ||
+            event.description.toLowerCase().contains(_searchText) ||
+            event.eventNumber.toString().contains(_searchText) ||
+            event.location.toLowerCase().contains(_searchText);
+      }).toList();
+    }
+
+    // Chronological: soonest event first, matching how staff look them up.
+    events = List.of(events)..sort((a, b) => a.date.compareTo(b.date));
+    return events;
+  }
+
+  List<Event> get _baseEvents {
     if (_showAllEvents) {
       return widget.events;
     } else {
@@ -75,7 +108,7 @@ class _EventSelectorDialogState extends State<EventSelectorDialog> {
             Container(
               padding: const EdgeInsets.all(16.0),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
                 borderRadius: const BorderRadius.only(
                   topLeft: Radius.circular(12),
                   topRight: Radius.circular(12),
@@ -99,6 +132,19 @@ class _EventSelectorDialogState extends State<EventSelectorDialog> {
               ),
             ),
             
+            // Search
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: TextField(
+                controller: _searchController,
+                style: const TextStyle(fontSize: 17),
+                decoration: const InputDecoration(
+                  hintText: 'Search events by name, number, or location...',
+                  prefixIcon: Icon(Icons.search),
+                ),
+              ),
+            ),
+
             // Filter Toggle
             Padding(
               padding: const EdgeInsets.all(16.0),

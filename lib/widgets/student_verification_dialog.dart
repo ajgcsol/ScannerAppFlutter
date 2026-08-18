@@ -1,15 +1,29 @@
 import 'package:flutter/material.dart';
 import '../models/student.dart';
 
+/// Shown when a student is identified — after a successful scan, or from the
+/// forgot-ID list as a confirmation step before the scan is recorded.
+///
+/// Leads with a large ID photo plus the student's name and email in large
+/// type, so staff can verify at a glance that the person in front of them
+/// matches the record.
 class StudentVerificationDialog extends StatelessWidget {
   final Student? student;
   final VoidCallback onDismiss;
+
+  /// When set, the dialog acts as a confirmation: Cancel/Confirm buttons are
+  /// shown and nothing has been recorded yet. When null, it is a success
+  /// notice for an already-recorded scan.
+  final VoidCallback? onConfirm;
 
   const StudentVerificationDialog({
     super.key,
     this.student,
     required this.onDismiss,
+    this.onConfirm,
   });
+
+  bool get _isConfirmation => onConfirm != null;
 
   @override
   Widget build(BuildContext context) {
@@ -26,163 +40,207 @@ class StudentVerificationDialog extends StatelessWidget {
       );
     }
 
+    final theme = Theme.of(context);
+
     return Dialog(
-      child: Container(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Success Icon
-            Icon(
-              Icons.check_circle,
-              color: Colors.green,
-              size: 64,
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Success Message
-            Text(
-              'You\'re all set ${student!.firstName}!',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.green,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Text(
+                _isConfirmation
+                    ? 'Confirm Student'
+                    : "You're all set, ${student!.firstName}!",
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: _isConfirmation
+                      ? theme.colorScheme.primary
+                      : Colors.green,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            
-            const SizedBox(height: 20),
-            
-            // Student Information Card
-            Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+
+              const SizedBox(height: 20),
+
+              // Large ID photo
+              _StudentPhoto(student: student!),
+
+              const SizedBox(height: 20),
+
+              // Name — large
+              Text(
+                '${student!.firstName} ${student!.lastName}',
+                style: const TextStyle(
+                  fontSize: 36,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: -0.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+
+              const SizedBox(height: 8),
+
+              // Email — large, always on one line: long addresses shrink to
+              // fit instead of wrapping.
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  student!.email,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey[700],
+                  ),
+                  maxLines: 1,
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              if (_isConfirmation)
+                Row(
                   children: [
-                    // Student Name
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.person,
-                          color: Theme.of(context).colorScheme.primary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Name',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.grey[600],
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: onDismiss,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 18),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${student!.firstName} ${student!.lastName}',
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                     ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // Student ID
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.badge,
-                          color: Theme.of(context).colorScheme.primary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Student ID',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.grey[600],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: onConfirm,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 18),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
                           ),
                         ),
-                      ],
+                        child: const Text(
+                          'Confirm',
+                          style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      student!.studentId,
-                      style: const TextStyle(
-                        fontSize: 14,
+                  ],
+                )
+              else
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: onDismiss,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text(
+                      'Continue',
+                      style: TextStyle(
+                        fontSize: 19,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // Student Email
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.email,
-                          color: Theme.of(context).colorScheme.primary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Email',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      student!.email,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            
-            const SizedBox(height: 20),
-            
-            // OK Button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: onDismiss,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                child: const Text(
-                  'Continue',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
+  }
+}
+
+/// The large photo block: network image when the student has one, otherwise
+/// an initials avatar. Never blocks the dialog — loading shows a spinner over
+/// the fallback and errors degrade to the initials.
+class _StudentPhoto extends StatelessWidget {
+  final Student student;
+
+  const _StudentPhoto({required this.student});
+
+  static const double _size = 250;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = student.photoUrl;
+
+    Widget fallback = Container(
+      width: _size,
+      height: _size,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        _initials,
+        style: TextStyle(
+          fontSize: 76,
+          fontWeight: FontWeight.bold,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+      ),
+    );
+
+    if (url == null || url.isEmpty) return fallback;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Image.network(
+        url,
+        width: _size,
+        height: _size,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return SizedBox(
+            width: _size,
+            height: _size,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                fallback,
+                const CircularProgressIndicator(strokeWidth: 2),
+              ],
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) => fallback,
+      ),
+    );
+  }
+
+  String get _initials {
+    final f = student.firstName.isNotEmpty ? student.firstName[0] : '';
+    final l = student.lastName.isNotEmpty ? student.lastName[0] : '';
+    final joined = '$f$l'.toUpperCase();
+    return joined.isEmpty ? '?' : joined;
   }
 }

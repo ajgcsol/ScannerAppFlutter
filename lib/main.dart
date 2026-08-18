@@ -1,11 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'screens/home_screen.dart';
+import 'screens/sign_in_screen.dart';
 import 'utils/theme.dart';
 import 'services/firebase_service.dart';
+import 'services/group_session.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Remembered sign-in context (group + user) drives which mode the app runs
+  // in, so it loads before any screen builds.
+  await GroupSession.load();
+
+  // Portrait only. The platform manifests (Info.plist on iOS, the activity's
+  // screenOrientation on Android) enforce this too; this is the runtime half,
+  // and it also covers Android where the manifest alone is easy to miss.
+  await SystemChrome.setPreferredOrientations(const [
+    DeviceOrientation.portraitUp,
+  ]);
 
   // Initialize Firebase Functions service (HTTP-based)
   try {
@@ -33,7 +46,9 @@ class InSessionApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
-      home: const HomeScreen(),
+      // Sign-in gate: restores the remembered session instantly, or asks
+      // for Microsoft 365 sign-in + group selection once per device.
+      home: const SignInScreen(),
       debugShowCheckedModeBanner: false,
     );
   }

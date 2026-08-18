@@ -8,6 +8,12 @@ import '../widgets/forgot_id_dialog.dart';
 import '../widgets/student_verification_dialog.dart';
 import '../widgets/event_summary_tab.dart';
 import '../screens/camera_preview_screen.dart';
+import '../utils/theme.dart';
+import '../services/group_session.dart';
+import '../services/auth_service.dart';
+import '../services/firebase_service.dart';
+import '../models/scan.dart';
+import 'sign_in_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -41,6 +47,236 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// Prospect-mode summary: simple counts + email the list to the group.
+  Widget _buildGroupSummary(BuildContext context, ScannerState uiState) {
+    final event = uiState.currentEvent;
+    if (event == null) {
+      return const Center(child: Text('Select a scan list first.'));
+    }
+    final scans = uiState.scans;
+    final unique = scans.map((s) => s.studentId).toSet().length;
+    final latest = scans.isNotEmpty ? scans.first.timestamp : null;
+
+    Widget stat(String label, String value) => Expanded(
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  Text(value,
+                      style: const TextStyle(
+                          fontSize: 32, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text(label, style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
+            ),
+          ),
+        );
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(event.name, style: Theme.of(context).textTheme.headlineSmall),
+          Text(
+            '${GroupSession.groupName ?? ''} scan list',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          Row(children: [
+            stat('Unique badges', '$unique'),
+            const SizedBox(width: 12),
+            stat('Total scans', '${scans.length}'),
+          ]),
+          if (latest != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                'Last scan: ${latest.hour.toString().padLeft(2, '0')}:${latest.minute.toString().padLeft(2, '0')}',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          const Spacer(),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.outgoing_mail),
+            label: Text('Email list to ${GroupSession.groupName ?? 'group'}'),
+            onPressed: scans.isEmpty
+                ? null
+                : () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (d) => AlertDialog(
+                        title: const Text('Email scan list?'),
+                        content: Text(
+                            'Sends the current list ($unique badges) to every member of ${GroupSession.groupName}.'),
+                        actions: [
+                          TextButton(
+                              onPressed: () => Navigator.of(d).pop(false),
+                              child: const Text('Cancel')),
+                          ElevatedButton(
+                              onPressed: () => Navigator.of(d).pop(true),
+                              child: const Text('Send')),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true || !mounted) return;
+                    final result = await FirebaseService.instance
+                        .emailEventReport(event.id, GroupSession.groupId!);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text(result != null
+                          ? 'Sent to ${result['recipients']?.length ?? '?'} member(s).'
+                          : 'Failed to send — try again.'),
+                      backgroundColor:
+                          result != null ? Colors.green : Colors.red,
+                    ));
+                  },
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  /// Account sheet: who is signed in, which group, switch group, sign out.
+  void _showAccountSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            Text(
+              GroupSession.upn ?? 'Not signed in',
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+            ),
+            Text(
+              GroupSession.groupName ?? 'No group selected',
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.swap_horiz),
+              title: const Text('Switch group'),
+              onTap: () async {
+                Navigator.of(sheetContext).pop();
+                await GroupSession.clearGroup();
+                if (mounted) {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(builder: (_) => const SignInScreen()),
+                  );
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.logout, color: AppTheme.errorRed),
+              title: const Text('Sign out',
+                  style: TextStyle(color: AppTheme.errorRed)),
+              onTap: () async {
+                Navigator.of(sheetContext).pop();
+                await AuthService.instance.signOut();
+                await GroupSession.load();
+                if (mounted) {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(builder: (_) => const SignInScreen()),
+                  );
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Prospect mode: type a badge number when it will not scan.
+  void _showManualCodeEntry(BuildContext context, ScannerNotifier notifier) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Enter Badge Code'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Badge / QR code'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final code = controller.text.trim();
+              Navigator.of(dialogContext).pop();
+              if (code.isNotEmpty) notifier.processCameraScan(code);
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Prospect mode: add or edit the note on a scanned badge.
+  void _showNoteEditor(BuildContext context, Scan scan) {
+    final controller = TextEditingController(text: scan.note ?? '');
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Note for ${scan.studentId}'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          decoration: const InputDecoration(hintText: 'Add a note…'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final note = controller.text.trim();
+              Navigator.of(dialogContext).pop();
+              final scannerNotifier = ref.read(scannerProvider.notifier);
+              final eventId = ref.read(scannerProvider).currentEvent?.id;
+              if (scan.recordId != null && eventId != null) {
+                final ok = await FirebaseService.instance
+                    .updateScanNote(scan.recordId!, eventId, note);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(ok ? 'Note saved.' : 'Could not save note.'),
+                    backgroundColor: ok ? Colors.green : Colors.red,
+                  ));
+                }
+                if (ok) scannerNotifier.refreshCurrentEventScans();
+              } else if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('Scan still syncing — try again in a moment.'),
+                ));
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -118,7 +354,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               scannerNotifier.hideEventSelector();
             },
           ),
-        ).then((_) => _isEventSelectorShowing = false);
+        ).then((_) {
+          // Runs on EVERY dismissal path, including tapping outside the
+          // dialog, which previously left showEventSelector latched true and
+          // made the event card unresponsive until an app restart.
+          _isEventSelectorShowing = false;
+          scannerNotifier.hideEventSelector();
+        });
       }
 
       if (next.showForgotIdDialog && previous != null && (previous.showForgotIdDialog == false) && !_isAnyDialogShowing) {
@@ -215,7 +457,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                     _showReportDialog(context, scannerNotifier);
                   },
                   style: TextButton.styleFrom(
-                    foregroundColor: Colors.blue,
+                    foregroundColor: AppTheme.navy,
                   ),
                   child: const Text('Report'),
                 ),
@@ -258,6 +500,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
             ),
           ],
         ),
+        actions: [
+          if (GroupSession.groupName != null)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Text(
+                  GroupSession.groupName!,
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.account_circle),
+            tooltip: 'Account',
+            onPressed: () => _showAccountSheet(context),
+          ),
+        ],
         backgroundColor: const Color(0xFF1A237E), // Darker blue for better contrast
         foregroundColor: Colors.white,
         elevation: 4,
@@ -295,7 +554,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                 // Scans Tab
                 _buildScansTab(context, scannerState, scannerNotifier),
                 // Summary Tab
-                EventSummaryTab(
+                GroupSession.groupMode
+                    ? _buildGroupSummary(context, scannerState)
+                    : EventSummaryTab(
                   uiState: scannerState,
                   onCompleteEvent: () async {
                     try {
@@ -560,18 +821,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
             Row(
               children: [
                 Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: scannerState.currentEvent != null
-                        ? () => scannerNotifier.showForgotIdDialog()
-                        : null,
-                    icon: const Icon(Icons.person_search),
-                    label: const Text('Forgot ID?'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                  ),
+                  // Prospect mode has no roster to search — manual code entry
+                  // replaces "Forgot ID?" for badges that will not scan.
+                  child: GroupSession.groupMode
+                      ? ElevatedButton.icon(
+                          onPressed: scannerState.currentEvent != null
+                              ? () => _showManualCodeEntry(context, scannerNotifier)
+                              : null,
+                          icon: const Icon(Icons.keyboard),
+                          label: const Text('Type Code'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                        )
+                      : ElevatedButton.icon(
+                          onPressed: scannerState.currentEvent != null
+                              ? () => scannerNotifier.showForgotIdDialog()
+                              : null,
+                          icon: const Icon(Icons.person_search),
+                          label: const Text('Forgot ID?'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                        ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -618,7 +894,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
             );
           } else if (index <= scannerState.scans.length) {
             // Scan items
-            return ScanItem(scan: scannerState.scans[index - 1]);
+            final scan = scannerState.scans[index - 1];
+            if (GroupSession.groupMode) {
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: ListTile(
+                  leading: const Icon(Icons.qr_code_2),
+                  title: Text(scan.studentId,
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text(
+                    '${scan.timestamp.hour.toString().padLeft(2, '0')}:${scan.timestamp.minute.toString().padLeft(2, '0')}'
+                    '${(scan.note ?? '').isNotEmpty ? ' · ${scan.note}' : ''}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: IconButton(
+                    icon: Icon(
+                      (scan.note ?? '').isNotEmpty
+                          ? Icons.sticky_note_2
+                          : Icons.note_add_outlined,
+                      color: AppTheme.navy,
+                    ),
+                    tooltip: 'Note',
+                    onPressed: () => _showNoteEditor(context, scan),
+                  ),
+                ),
+              );
+            }
+            return ScanItem(scan: scan);
           } else {
             // Bottom spacing
             return const SizedBox(height: 80);
@@ -703,7 +1006,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
+              backgroundColor: AppTheme.navy,
               foregroundColor: Colors.white,
             ),
             child: const Text('Submit Report'),

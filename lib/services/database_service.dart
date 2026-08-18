@@ -11,7 +11,7 @@ import '../models/error_record.dart' as error_model;
 class DatabaseService {
   static Database? _database;
   static const String _databaseName = 'insession.db';
-  static const int _databaseVersion = 2; // Bumped to remove sample data
+  static const int _databaseVersion = 5; // v5: event groupId + scan notes
 
   // Table names
   static const String _eventsTable = 'events';
@@ -59,7 +59,8 @@ class DatabaseService {
         completedAt INTEGER,
         createdAt INTEGER NOT NULL,
         createdBy TEXT,
-        exportFormat TEXT NOT NULL DEFAULT 'textDelimited'
+        exportFormat TEXT NOT NULL DEFAULT 'textDelimited',
+        groupId TEXT
       )
     ''');
 
@@ -72,7 +73,9 @@ class DatabaseService {
         email TEXT NOT NULL,
         program TEXT,
         year TEXT,
-        active INTEGER NOT NULL DEFAULT 1
+        active INTEGER NOT NULL DEFAULT 1,
+        photoUrl TEXT,
+        hasPhoto INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -87,6 +90,7 @@ class DatabaseService {
         studentId TEXT,
         deviceId TEXT,
         synced INTEGER NOT NULL DEFAULT 0,
+        note TEXT,
         FOREIGN KEY (eventId) REFERENCES $_eventsTable (id),
         FOREIGN KEY (studentId) REFERENCES $_studentsTable (studentId)
       )
@@ -118,9 +122,22 @@ class DatabaseService {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Handle database upgrades here
-    if (oldVersion < newVersion) {
-      // Add migration logic as needed
+    if (oldVersion < 3) {
+      // v3: student photo fields
+      await db.execute('ALTER TABLE $_studentsTable ADD COLUMN photoUrl TEXT');
+      await db.execute(
+          'ALTER TABLE $_studentsTable ADD COLUMN hasPhoto INTEGER NOT NULL DEFAULT 0');
+    }
+    if (oldVersion < 4) {
+      // v4: flush the student cache once. Earlier versions only ever inserted
+      // during sync, so students removed from the server (e.g. the spring
+      // roster) lingered on devices forever. Sync repopulates immediately.
+      await db.delete(_studentsTable);
+    }
+    if (oldVersion < 5) {
+      // v5: department scan lists (event ownership) + per-scan notes.
+      await db.execute('ALTER TABLE $_eventsTable ADD COLUMN groupId TEXT');
+      await db.execute('ALTER TABLE $_scansTable ADD COLUMN note TEXT');
     }
   }
 
@@ -214,6 +231,7 @@ class DatabaseService {
           (e) => e.toString().split('.').last == maps[i]['exportFormat'],
           orElse: () => ExportFormat.textDelimited,
         ),
+        groupId: maps[i]['groupId'],
       );
     });
   }
@@ -235,6 +253,7 @@ class DatabaseService {
         'createdAt': event.createdAt.millisecondsSinceEpoch,
         'createdBy': event.createdBy,
         'exportFormat': event.exportFormat.toString().split('.').last,
+        'groupId': event.groupId,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -315,6 +334,8 @@ class DatabaseService {
         program: maps[i]['program'] ?? '',
         year: maps[i]['year'] ?? '',
         active: maps[i]['active'] == 1,
+        photoUrl: maps[i]['photoUrl'],
+        hasPhoto: maps[i]['hasPhoto'] == 1,
       );
     });
   }
@@ -337,6 +358,8 @@ class DatabaseService {
         program: maps[0]['program'] ?? '',
         year: maps[0]['year'] ?? '',
         active: maps[0]['active'] == 1,
+        photoUrl: maps[0]['photoUrl'],
+        hasPhoto: maps[0]['hasPhoto'] == 1,
       );
     }
     return null;
@@ -369,7 +392,34 @@ class DatabaseService {
         program: maps[i]['program'] ?? '',
         year: maps[i]['year'] ?? '',
         active: maps[i]['active'] == 1,
+        photoUrl: maps[i]['photoUrl'],
+        hasPhoto: maps[i]['hasPhoto'] == 1,
       );
+    });
+  }
+
+  /// Replaces the entire local roster in one transaction. Used by sync so
+  /// students deleted on the server also disappear from devices. The caller
+  /// must never pass an empty list from a failed fetch.
+  Future<void> replaceAllStudents(List<Student> students) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete(_studentsTable);
+      final batch = txn.batch();
+      for (final student in students) {
+        batch.insert(_studentsTable, {
+          'studentId': student.studentId,
+          'firstName': student.firstName,
+          'lastName': student.lastName,
+          'email': student.email,
+          'program': student.program,
+          'year': student.year,
+          'active': student.active ? 1 : 0,
+          'photoUrl': student.photoUrl,
+          'hasPhoto': student.hasPhoto ? 1 : 0,
+        });
+      }
+      await batch.commit(noResult: true);
     });
   }
 
@@ -385,6 +435,8 @@ class DatabaseService {
         'program': student.program,
         'year': student.year,
         'active': student.active ? 1 : 0,
+        'photoUrl': student.photoUrl,
+        'hasPhoto': student.hasPhoto ? 1 : 0,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );

@@ -13,13 +13,25 @@ class FirebaseService {
   FirebaseService._();
 
   late final Dio _dio;
-  static const String _baseUrl = 'https://us-central1-scannerappfb.cloudfunctions.net';
+  static const String _baseUrl = 'https://insession-api-fc.azurewebsites.net';
+
+  // The backend requires an authenticated caller on every endpoint that touches
+  // student data. Supplied at build time so the key never lands in source
+  // control: flutter build ios --dart-define=INSESSION_API_KEY=<key>
+  static const String _apiKey = String.fromEnvironment('INSESSION_API_KEY');
   
   bool _isInitialized = false;
+  Object? _authService; // AuthService once sign-in completes (kept untyped to avoid a hard import cycle)
+
   // FirebaseFirestore? _firestore;  // Disabled due to BoringSSL issues
   bool get isInitialized => _isInitialized;
   bool get isAvailable => _isInitialized;
   bool get isConnected => _isInitialized;
+
+  /// Called after Microsoft 365 sign-in so every request carries the user.
+  void attachAuth(Object authService) {
+    _authService = authService;
+  }
 
   Future<void> initialize() async {
     debugPrint('🔥 Firebase initialize() started');
@@ -32,6 +44,31 @@ class FirebaseService {
         receiveTimeout: const Duration(seconds: 30),
         headers: {
           'Content-Type': 'application/json',
+          if (_apiKey.isNotEmpty) 'x-api-key': _apiKey,
+        },
+      ));
+
+      if (_apiKey.isEmpty) {
+        debugPrint(
+          '⚠️ INSESSION_API_KEY was not set at build time; '
+          'the backend will reject requests with 401.',
+        );
+      }
+
+      // Signed-in requests carry the user's Microsoft 365 token; the shared
+      // key stays as a fallback so scanning keeps working mid-transition.
+      _dio.interceptors.add(InterceptorsWrapper(
+        onRequest: (options, handler) async {
+          final auth = _authService;
+          if (auth != null) {
+            try {
+              final token = await (auth as dynamic).bearerToken();
+              if (token != null) {
+                options.headers['Authorization'] = 'Bearer $token';
+              }
+            } catch (_) {}
+          }
+          handler.next(options);
         },
       ));
 
@@ -60,6 +97,31 @@ class FirebaseService {
       debugPrint('🔥 Firebase Functions initialization failed: $e');
       _isInitialized = false;
     }
+  }
+
+  /// Saves a free-text note on a scan (prospect scan lists).
+  Future<bool> updateScanNote(String scanId, String eventId, String note) async {
+    try {
+      final response = await _dio.patch('/data/scans/$scanId', data: {'note': note});
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('🔥 updateScanNote failed: $e');
+      return false;
+    }
+  }
+
+  /// Emails the event's scan list to every member of the group.
+  Future<Map<String, dynamic>?> emailEventReport(String eventId, String groupId) async {
+    try {
+      final response = await _dio.post('/emailEventReport',
+          data: {'eventId': eventId, 'groupId': groupId});
+      if (response.statusCode == 200 && response.data is Map) {
+        return Map<String, dynamic>.from(response.data);
+      }
+    } catch (e) {
+      debugPrint('🔥 emailEventReport failed: $e');
+    }
+    return null;
   }
 
   // Scan Records Operations
@@ -206,6 +268,7 @@ class FirebaseService {
         completedAt: completedAtDate,
         createdAt: createdAtDate,
         createdBy: data['createdBy']?.toString() ?? '',
+        groupId: data['groupId'],
         customColumns: [], // TODO: Parse custom columns if needed
         staticValues: Map<String, String>.from(data['staticValues'] ?? {}),
         exportFormat: ExportFormat.textDelimited, // Default for now
@@ -309,6 +372,7 @@ class FirebaseService {
         processed: data['verified'] == true || data['processed'] == true,
         synced: data['synced'] == true,
         metadata: Map<String, dynamic>.from(data['metadata'] ?? {}),
+        note: data['note']?.toString(),
       );
     } catch (e) {
       debugPrint('🔍 Error converting scan data: $e');
@@ -348,6 +412,7 @@ class FirebaseService {
         'customColumns': event.customColumns.map((col) => col.toJson()).toList(),
         'staticValues': event.staticValues,
         'exportFormat': event.exportFormat.toString().split('.').last.toUpperCase(),
+        'groupId': event.groupId,
       };
       
       final response = await _dio.post('/createEvent', data: eventData);
@@ -466,7 +531,7 @@ class FirebaseService {
       debugPrint('🔥 Fetching deleted events from Firebase Functions');
       
       final response = await _dio.get(
-        'https://us-central1-scannerappfb.cloudfunctions.net/getDeletedEvents',
+        'https://insession-api-fc.azurewebsites.net/getDeletedEvents',
         options: Options(
           headers: {'Content-Type': 'application/json'},
         ),

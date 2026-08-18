@@ -19,6 +19,9 @@ class Event {
   final List<EventColumn> customColumns;
   final Map<String, String> staticValues;
   final ExportFormat exportFormat;
+  /// Owning group for department scan lists (e.g. Admissions); null =
+  /// school-wide attendance event.
+  final String? groupId;
 
   const Event({
     required this.id,
@@ -31,6 +34,7 @@ class Event {
     this.isCompleted = false,
     this.completedAt,
     required this.createdAt,
+    this.groupId,
     this.createdBy = '',
     this.customColumns = const [],
     this.staticValues = const {},
@@ -40,12 +44,19 @@ class Event {
   factory Event.fromJson(Map<String, dynamic> json) => _$EventFromJson(json);
   Map<String, dynamic> toJson() => _$EventToJson(this);
 
+  // Event dates are calendar dates stored as midnight UTC; formatting must
+  // use UTC components or the date shifts a day early in US timezones
+  // (e.g. Aug 19 rendering as "Aug 18" in Eastern).
+  DateTime get _dateUtc => date.toUtc();
+
   String get formattedDate {
-    return '${_monthName(date.month)} ${date.day}, ${date.year} at ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    final d = _dateUtc;
+    return '${_monthName(d.month)} ${d.day}, ${d.year}';
   }
 
   String get shortDate {
-    return '${_monthName(date.month)} ${date.day}';
+    final d = _dateUtc;
+    return '${_monthName(d.month)} ${d.day}';
   }
 
   EventStatus get status {
@@ -74,6 +85,7 @@ class Event {
     String description = '',
     DateTime? date,
     String location = '',
+    String? groupId,
   }) {
     return Event(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -83,6 +95,7 @@ class Event {
       date: date ?? DateTime.now(),
       location: location,
       createdAt: DateTime.now(),
+      groupId: groupId,
     );
   }
 
@@ -101,6 +114,7 @@ class Event {
     List<EventColumn>? customColumns,
     Map<String, String>? staticValues,
     ExportFormat? exportFormat,
+    String? groupId,
   }) {
     return Event(
       id: id ?? this.id,
@@ -117,6 +131,7 @@ class Event {
       customColumns: customColumns ?? this.customColumns,
       staticValues: staticValues ?? this.staticValues,
       exportFormat: exportFormat ?? this.exportFormat,
+      groupId: groupId ?? this.groupId,
     );
   }
 }

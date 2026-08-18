@@ -14,6 +14,7 @@ class ScanRecord {
   final bool processed;
   final bool synced;
   final Map<String, dynamic> metadata;
+  final String? note;
 
   const ScanRecord({
     required this.id,
@@ -26,6 +27,7 @@ class ScanRecord {
     this.processed = false,
     this.synced = false,
     this.metadata = const {},
+    this.note,
   });
 
   factory ScanRecord.fromJson(Map<String, dynamic> json) => _$ScanRecordFromJson(json);

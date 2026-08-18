@@ -79,16 +79,26 @@ class _CreateEventDialogState extends State<CreateEventDialog> {
       });
 
       try {
-        final eventDateTime = DateTime(
-          _selectedDate.year,
-          _selectedDate.month,
-          _selectedDate.day,
-          _selectedTime.hour,
-          _selectedTime.minute,
-        );
+        final eventDateTime = GroupSession.groupMode
+            // Scan lists are day-scoped; no time component.
+            ? DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)
+            : DateTime(
+                _selectedDate.year,
+                _selectedDate.month,
+                _selectedDate.day,
+                _selectedTime.hour,
+                _selectedTime.minute,
+              );
+
+        // Group scan lists auto-number far above the SONIS id range so the
+        // number never collides with attendance events and never needs to be
+        // typed by staff.
+        final eventNumber = GroupSession.groupMode
+            ? 9000000 + (DateTime.now().millisecondsSinceEpoch ~/ 1000) % 900000
+            : int.parse(_eventNumberController.text);
 
         final event = Event.createNew(
-          eventNumber: int.parse(_eventNumberController.text),
+          eventNumber: eventNumber,
           name: _nameController.text.trim(),
           description: _descriptionController.text.trim(),
           date: eventDateTime,
@@ -154,7 +164,9 @@ class _CreateEventDialogState extends State<CreateEventDialog> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Event Number
+                      // Event Number — SONIS concept; group scan lists
+                      // auto-number themselves out of the SONIS range.
+                      if (!GroupSession.groupMode)
                       TextFormField(
                         controller: _eventNumberController,
                         decoration: const InputDecoration(
@@ -178,9 +190,9 @@ class _CreateEventDialogState extends State<CreateEventDialog> {
                           return null;
                         },
                       ),
-                      
-                      const SizedBox(height: 16),
-                      
+
+                      if (!GroupSession.groupMode) const SizedBox(height: 16),
+
                       // Event Name
                       TextFormField(
                         controller: _nameController,
@@ -215,6 +227,7 @@ class _CreateEventDialogState extends State<CreateEventDialog> {
                       const SizedBox(height: 16),
                       
                       // Location
+                      if (!GroupSession.groupMode)
                       TextFormField(
                         controller: _locationController,
                         decoration: const InputDecoration(
@@ -234,37 +247,41 @@ class _CreateEventDialogState extends State<CreateEventDialog> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'Event Date & Time',
+                              Text(
+                                GroupSession.groupMode ? 'Event Date' : 'Event Date & Time',
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: _isCreating ? null : _selectDate,
-                                      icon: const Icon(Icons.calendar_today),
-                                      label: Text(
-                                        '${_selectedDate.month}/${_selectedDate.day}/${_selectedDate.year}',
-                                      ),
-                                    ),
+                              // Full-width rows: side-by-side chips wrapped
+                              // their labels one character per line.
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: _isCreating ? null : _selectDate,
+                                  icon: const Icon(Icons.calendar_today),
+                                  label: Text(
+                                    '${_selectedDate.month}/${_selectedDate.day}/${_selectedDate.year}',
+                                    maxLines: 1,
                                   ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: _isCreating ? null : _selectTime,
-                                      icon: const Icon(Icons.access_time),
-                                      label: Text(
-                                        _selectedTime.format(context),
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
+                              if (!GroupSession.groupMode) ...[
+                                const SizedBox(height: 10),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    onPressed: _isCreating ? null : _selectTime,
+                                    icon: const Icon(Icons.access_time),
+                                    label: Text(
+                                      _selectedTime.format(context),
+                                      maxLines: 1,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -272,7 +289,8 @@ class _CreateEventDialogState extends State<CreateEventDialog> {
                       
                       const SizedBox(height: 16),
                       
-                      // Event Status
+                      // Event Status — group lists are always active.
+                      if (!GroupSession.groupMode)
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16.0),

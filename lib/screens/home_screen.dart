@@ -41,6 +41,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    // The provider outlives group switches (sign-in → HomeScreen replaces the
+    // route but not the ProviderScope), so the event list it holds may belong
+    // to the PREVIOUS group. Reload with the current group's scope every time
+    // this screen mounts — otherwise switching to Admissions still shows the
+    // Student Affairs lists it loaded earlier.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(scannerProvider.notifier).refreshGroupSession();
+    });
   }
 
   @override

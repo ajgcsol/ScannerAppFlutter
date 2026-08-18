@@ -818,8 +818,13 @@ async function loadEvents() {
         const events = eventsSnapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
-        }));
-        
+        }))
+        // Attendance events only: department scan lists (groupId set, e.g.
+        // Admissions) never appear here — they live in the Scan Lists tab,
+        // scoped to their own group. Keeps SONIS exports and student
+        // attendance strictly separated from prospect scanning.
+        .filter(event => !event.groupId);
+
         // Chronological: earliest event date first, matching the iOS app.
         // Events without a date sort to the end by creation time.
         events.sort((a, b) => {
@@ -3532,7 +3537,7 @@ async function showAddToEvent(studentId) {
     panel.innerHTML = '<div style="color: #718096; font-size: 0.85rem;">Loading events…</div>';
 
     const events = (await ensureEventsLoaded())
-        .filter(e => e.isActive !== false)
+        .filter(e => e.isActive !== false && !e.groupId)
         .sort((a, b) => tsToMillis(a.date) - tsToMillis(b.date));
 
     panel.innerHTML = `

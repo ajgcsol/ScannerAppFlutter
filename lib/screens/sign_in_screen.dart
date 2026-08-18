@@ -52,9 +52,12 @@ class _SignInScreenState extends State<SignInScreen> {
     });
     final ok = await AuthService.instance.signIn();
     if (!ok) {
+      final detail = AuthService.instance.lastError;
       setState(() {
         _busy = false;
-        _error = 'Sign-in was cancelled or failed. Please try again.';
+        _error = detail == null || detail.isEmpty
+            ? 'Sign-in was cancelled or failed. Please try again.'
+            : 'Sign-in failed:\n$detail';
       });
       return;
     }

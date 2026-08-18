@@ -13,3 +13,4 @@ require("./functions/dataApi");
 require("./functions/attendanceEmail");
 require("./functions/access");
 require("./functions/reports");
+require("./functions/health");

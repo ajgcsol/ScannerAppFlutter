@@ -32,6 +32,10 @@ class AuthService {
   DateTime? _accessTokenExpiry;
   Map<String, dynamic>? _me; // backend /me payload
 
+  /// Human-readable reason the last sign-in step failed — surfaced in the UI
+  /// so TestFlight users see the real error, not a generic message.
+  String? lastError;
+
   bool get isSignedIn => _accessToken != null;
   Map<String, dynamic>? get me => _me;
   bool get isAdmin => _me?['isAdmin'] == true;
@@ -75,24 +79,54 @@ class AuthService {
   }
 
   /// Interactive Microsoft 365 sign-in.
+  ///
+  /// Bounded: if the browser callback or token exchange ever wedges, the
+  /// future resolves into a visible error instead of spinning forever.
   Future<bool> signIn() async {
+    lastError = null;
     try {
-      final result = await _appAuth.authorizeAndExchangeCode(
-        AuthorizationTokenRequest(
-          _clientId,
-          _redirectUrl,
-          serviceConfiguration: _serviceConfig,
-          scopes: _scopes,
-          promptValues: const ['select_account'],
-        ),
-      );
+      final result = await _appAuth
+          .authorizeAndExchangeCode(
+            AuthorizationTokenRequest(
+              _clientId,
+              _redirectUrl,
+              serviceConfiguration: _serviceConfig,
+              scopes: _scopes,
+              promptValues: const ['select_account'],
+              // Ephemeral session skips Apple's "Wants to Use
+              // microsoftonline.com to Sign In" consent alert — the hidden
+              // dialog users missed, which looked like an infinite spinner.
+              // Trade-off: no shared Safari cookies, so credentials are typed
+              // on first sign-in; refresh tokens keep it silent afterwards.
+              externalUserAgent:
+                  ExternalUserAgent.ephemeralAsWebAuthenticationSession,
+            ),
+          )
+          .timeout(const Duration(seconds: 150), onTimeout: () {
+        throw Exception(
+            'Timed out waiting for Microsoft to hand back to the app '
+            '(browser step or token exchange never completed).');
+      });
+      if (result.accessToken == null) {
+        lastError = 'Microsoft returned no access token.';
+        return false;
+      }
       await _storeTokens(result.accessToken, result.refreshToken,
           result.accessTokenExpirationDateTime);
-      return _accessToken != null;
+      return true;
     } catch (e) {
-      debugPrint('🔐 signIn failed or was cancelled: $e');
+      lastError = _describe(e);
+      debugPrint('🔐 signIn failed: $lastError');
       return false;
     }
+  }
+
+  /// Extracts the useful part of platform auth errors (AADSTS codes etc.).
+  String _describe(Object e) {
+    final text = e.toString();
+    final aadsts = RegExp(r'AADSTS\d+[^"\\]{0,200}').firstMatch(text);
+    if (aadsts != null) return aadsts.group(0)!;
+    return text.length > 300 ? text.substring(0, 300) : text;
   }
 
   Future<bool> _refresh(String refreshToken) async {
@@ -108,7 +142,8 @@ class AuthService {
           result.accessTokenExpirationDateTime);
       return _accessToken != null;
     } catch (e) {
-      debugPrint('🔐 token refresh failed: $e');
+      lastError = _describe(e);
+      debugPrint('🔐 token refresh failed: $lastError');
       return false;
     }
   }

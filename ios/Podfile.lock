@@ -1,10 +1,4 @@
 PODS:
-  - AppAuth (2.0.0):
-    - AppAuth/Core (= 2.0.0)
-    - AppAuth/ExternalUserAgent (= 2.0.0)
-  - AppAuth/Core (2.0.0)
-  - AppAuth/ExternalUserAgent (2.0.0):
-    - AppAuth/Core
   - camera_avfoundation (0.0.1):
     - Flutter
   - connectivity_plus (0.0.1):
@@ -13,14 +7,8 @@ PODS:
   - device_info_plus (0.0.1):
     - Flutter
   - Flutter (1.0.0)
-  - flutter_appauth (0.0.1):
-    - AppAuth (= 2.0.0)
-    - Flutter
   - flutter_barcode_scanner (2.0.0):
     - Flutter
-  - flutter_secure_storage_darwin (10.0.0):
-    - Flutter
-    - FlutterMacOS
   - GoogleDataTransport (9.4.1):
     - GoogleUtilities/Environment (~> 7.7)
     - nanopb (< 2.30911.0, >= 2.30908.0)
@@ -76,6 +64,12 @@ PODS:
   - mobile_scanner (3.5.6):
     - Flutter
     - GoogleMLKit/BarcodeScanning (~> 4.0.0)
+  - MSAL (2.2.0):
+    - MSAL/app-lib (= 2.2.0)
+  - MSAL/app-lib (2.2.0)
+  - msal_auth (2.0.2):
+    - Flutter
+    - MSAL (~> 2.2.0)
   - nanopb (2.30910.0):
     - nanopb/decode (= 2.30910.0)
     - nanopb/encode (= 2.30910.0)
@@ -104,10 +98,9 @@ DEPENDENCIES:
   - connectivity_plus (from `.symlinks/plugins/connectivity_plus/ios`)
   - device_info_plus (from `.symlinks/plugins/device_info_plus/ios`)
   - Flutter (from `Flutter`)
-  - flutter_appauth (from `.symlinks/plugins/flutter_appauth/ios`)
   - flutter_barcode_scanner (from `.symlinks/plugins/flutter_barcode_scanner/ios`)
-  - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
   - mobile_scanner (from `.symlinks/plugins/mobile_scanner/ios`)
+  - msal_auth (from `.symlinks/plugins/msal_auth/ios`)
   - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
   - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
@@ -117,7 +110,6 @@ DEPENDENCIES:
 
 SPEC REPOS:
   trunk:
-    - AppAuth
     - GoogleDataTransport
     - GoogleMLKit
     - GoogleToolboxForMac
@@ -128,6 +120,7 @@ SPEC REPOS:
     - MLKitBarcodeScanning
     - MLKitCommon
     - MLKitVision
+    - MSAL
     - nanopb
     - PromisesObjC
     - ReachabilitySwift
@@ -141,14 +134,12 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/device_info_plus/ios"
   Flutter:
     :path: Flutter
-  flutter_appauth:
-    :path: ".symlinks/plugins/flutter_appauth/ios"
   flutter_barcode_scanner:
     :path: ".symlinks/plugins/flutter_barcode_scanner/ios"
-  flutter_secure_storage_darwin:
-    :path: ".symlinks/plugins/flutter_secure_storage_darwin/darwin"
   mobile_scanner:
     :path: ".symlinks/plugins/mobile_scanner/ios"
+  msal_auth:
+    :path: ".symlinks/plugins/msal_auth/ios"
   package_info_plus:
     :path: ".symlinks/plugins/package_info_plus/ios"
   path_provider_foundation:
@@ -163,14 +154,11 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/sqflite_darwin/darwin"
 
 SPEC CHECKSUMS:
-  AppAuth: 1c1a8afa7e12f2ec3a294d9882dfa5ab7d3cb063
   camera_avfoundation: be3be85408cd4126f250386828e9b1dfa40ab436
   connectivity_plus: 481668c94744c30c53b8895afb39159d1e619bdf
   device_info_plus: 335f3ce08d2e174b9fdc3db3db0f4e3b1f66bd89
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
-  flutter_appauth: d4abcf54856e5d8ba82ed7646ffc83245d4aa448
   flutter_barcode_scanner: c5aa9f51c150a6242fa392386bd52b64bb27fcb5
-  flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23
   GoogleDataTransport: 6c09b596d841063d76d4288cc2d2f42cc36e1e2a
   GoogleMLKit: 2bd0dc6253c4d4f227aad460f69215a504b2980e
   GoogleToolboxForMac: 8bef7c7c5cf7291c687cf5354f39f9db6399ad34
@@ -182,6 +170,8 @@ SPEC CHECKSUMS:
   MLKitCommon: c1b791c3e667091918d91bda4bba69a91011e390
   MLKitVision: 8baa5f46ee3352614169b85250574fde38c36f49
   mobile_scanner: b67191637a5ea7ba15652ca208069d2bae1900ab
+  MSAL: 551bfa97974d3f6a82f9f53312976b9fa5904a52
+  msal_auth: cb3f482e2f72e1181b1d476ff3a36c5ab560f29c
   nanopb: 438bc412db1928dac798aa6fd75726007be04262
   package_info_plus: 566e1b7a2f3900e4b0020914ad3fc051dcc95596
   path_provider_foundation: 080d55be775b7414fd5a5ef3ac137b97b097e564

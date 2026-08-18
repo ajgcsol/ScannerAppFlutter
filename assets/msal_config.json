@@ -1,0 +1,16 @@
+{
+  "client_id": "cd8d142c-8a24-40f3-ac2e-7f2da60e2965",
+  "authorization_user_agent": "DEFAULT",
+  "redirect_uri": "msauth.com.charlestonlaw.insession.app://auth",
+  "broker_redirect_uri_registered": false,
+  "account_mode": "SINGLE",
+  "authorities": [
+    {
+      "type": "AAD",
+      "audience": {
+        "type": "AzureADMyOrg",
+        "tenant_id": "40acb9f6-d0e3-4a23-9fc1-23e8e1ac0078"
+      }
+    }
+  ]
+}

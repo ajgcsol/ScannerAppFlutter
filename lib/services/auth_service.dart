@@ -1,18 +1,17 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
-import 'package:flutter_appauth/flutter_appauth.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:msal_auth/msal_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 
-/// Microsoft 365 sign-in for the scanner.
+/// Microsoft 365 sign-in, built on Microsoft's own MSAL SDK — the same
+/// engine the Office apps use. MSAL owns the browser handoff, redirect
+/// capture, token cache, and silent refresh, which the generic OAuth
+/// library kept fumbling.
 ///
-/// Sign in once: tokens live in the keychain and refresh silently, and the
-/// chosen group is remembered, so staff see the login screen exactly once per
-/// device. Authorization is enforced server-side — being in the tenant is not
-/// enough; the backend only accepts admins, allowlisted users, and group
-/// members.
+/// Sign in once per device: MSAL caches the account in the keychain and
+/// refreshes silently. Authorization stays server-side — being in the
+/// tenant is not enough; the backend only accepts admins, allowlisted
+/// users, and group members.
 class AuthService {
   static AuthService? _instance;
   static AuthService get instance => _instance ??= AuthService._();
@@ -20,20 +19,19 @@ class AuthService {
 
   static const _tenantId = '40acb9f6-d0e3-4a23-9fc1-23e8e1ac0078';
   static const _clientId = 'cd8d142c-8a24-40f3-ac2e-7f2da60e2965';
-  static const _redirectUrl = 'msauth.com.charlestonlaw.insession.app://auth';
-  static const _apiScope = 'api://$_clientId/access_as_user';
-  static const _issuerBase =
-      'https://login.microsoftonline.com/$_tenantId/oauth2/v2.0';
+  static const _authority = 'https://login.microsoftonline.com/$_tenantId';
+  static const _redirectUri = 'msauth.com.charlestonlaw.insession.app://auth';
 
-  final FlutterAppAuth _appAuth = const FlutterAppAuth();
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  // MSAL adds openid/profile/offline_access itself; only the API scope is
+  // requested explicitly (reserved scopes in this list are an error on iOS).
+  static const _scopes = ['api://$_clientId/access_as_user'];
 
+  SingleAccountPca? _pca;
   String? _accessToken;
-  DateTime? _accessTokenExpiry;
   Map<String, dynamic>? _me; // backend /me payload
 
-  /// Human-readable reason the last sign-in step failed — surfaced in the UI
-  /// so TestFlight users see the real error, not a generic message.
+  /// Human-readable reason the last sign-in step failed — shown in the UI so
+  /// TestFlight users see the real error, never a silent spinner.
   String? lastError;
 
   bool get isSignedIn => _accessToken != null;
@@ -43,77 +41,62 @@ class AuthService {
   List<Map<String, dynamic>> get groups =>
       List<Map<String, dynamic>>.from(_me?['groups'] ?? const []);
 
-  static const _serviceConfig = AuthorizationServiceConfiguration(
-    authorizationEndpoint: '$_issuerBase/authorize',
-    tokenEndpoint: '$_issuerBase/token',
-  );
+  Future<SingleAccountPca> _client() async {
+    _pca ??= await SingleAccountPca.create(
+      clientId: _clientId,
+      appleConfig: AppleConfig(
+        authority: _authority,
+        authorityType: AuthorityType.aad,
+        // Authenticator app when installed (one-tap SSO for staff who have
+        // it), Safari otherwise.
+        broker: Broker.msAuthenticator,
+      ),
+      androidConfig: AndroidConfig(
+        configFilePath: 'assets/msal_config.json',
+        redirectUri: _redirectUri,
+      ),
+    );
+    return _pca!;
+  }
 
-  static const _scopes = [
-    'openid',
-    'profile',
-    'email',
-    'offline_access',
-    _apiScope,
-  ];
-
-  /// Attempts to restore a previous session without any UI.
-  /// Hard-capped: a slow keychain or token endpoint must never hold the
-  /// launch screen hostage.
+  /// Restores a previous session silently. Hard-capped so a slow keychain or
+  /// network can never hold the launch screen hostage.
   Future<bool> restoreSession() async {
     try {
-      return await _restoreSessionInner()
-          .timeout(const Duration(seconds: 10), onTimeout: () {
+      return await _restoreInner().timeout(const Duration(seconds: 12),
+          onTimeout: () {
         debugPrint('🔐 restoreSession timed out');
         return false;
       });
     } catch (e) {
-      debugPrint('🔐 restoreSession failed: $e');
+      debugPrint('🔐 restoreSession: no cached session ($e)');
       return false;
     }
   }
 
-  Future<bool> _restoreSessionInner() async {
-    final refreshToken = await _storage.read(key: 'ms_refresh_token');
-    if (refreshToken == null) return false;
-    return await _refresh(refreshToken);
+  Future<bool> _restoreInner() async {
+    final pca = await _client();
+    final result = await pca.acquireTokenSilent(scopes: _scopes);
+    _accessToken = result.accessToken;
+    return true;
   }
 
   /// Interactive Microsoft 365 sign-in.
-  ///
-  /// Bounded: if the browser callback or token exchange ever wedges, the
-  /// future resolves into a visible error instead of spinning forever.
   Future<bool> signIn() async {
     lastError = null;
     try {
-      final result = await _appAuth
-          .authorizeAndExchangeCode(
-            AuthorizationTokenRequest(
-              _clientId,
-              _redirectUrl,
-              serviceConfiguration: _serviceConfig,
-              scopes: _scopes,
-              promptValues: const ['select_account'],
-              // Ephemeral session skips Apple's "Wants to Use
-              // microsoftonline.com to Sign In" consent alert — the hidden
-              // dialog users missed, which looked like an infinite spinner.
-              // Trade-off: no shared Safari cookies, so credentials are typed
-              // on first sign-in; refresh tokens keep it silent afterwards.
-              externalUserAgent:
-                  ExternalUserAgent.ephemeralAsWebAuthenticationSession,
-            ),
-          )
-          .timeout(const Duration(seconds: 150), onTimeout: () {
-        throw Exception(
-            'Timed out waiting for Microsoft to hand back to the app '
-            '(browser step or token exchange never completed).');
+      final pca = await _client();
+      final result = await pca
+          .acquireToken(scopes: _scopes, prompt: Prompt.selectAccount)
+          .timeout(const Duration(seconds: 180), onTimeout: () {
+        throw Exception('Timed out waiting for Microsoft sign-in to finish.');
       });
-      if (result.accessToken == null) {
-        lastError = 'Microsoft returned no access token.';
-        return false;
-      }
-      await _storeTokens(result.accessToken, result.refreshToken,
-          result.accessTokenExpirationDateTime);
+      _accessToken = result.accessToken;
       return true;
+    } on MsalException catch (e) {
+      lastError = _describeMsal(e);
+      debugPrint('🔐 signIn failed: $lastError');
+      return false;
     } catch (e) {
       lastError = _describe(e);
       debugPrint('🔐 signIn failed: $lastError');
@@ -121,65 +104,38 @@ class AuthService {
     }
   }
 
-  /// Extracts the useful part of platform auth errors (AADSTS codes etc.).
-  String _describe(Object e) {
-    final text = e.toString();
+  String _describeMsal(MsalException e) {
+    final text = e.message;
     final aadsts = RegExp(r'AADSTS\d+[^"\\]{0,200}').firstMatch(text);
     if (aadsts != null) return aadsts.group(0)!;
+    if (e is MsalUserCancelException) return 'Sign-in was cancelled.';
     return text.length > 300 ? text.substring(0, 300) : text;
   }
 
-  Future<bool> _refresh(String refreshToken) async {
-    try {
-      final result = await _appAuth.token(TokenRequest(
-        _clientId,
-        _redirectUrl,
-        serviceConfiguration: _serviceConfig,
-        refreshToken: refreshToken,
-        scopes: _scopes,
-      ));
-      await _storeTokens(result.accessToken, result.refreshToken,
-          result.accessTokenExpirationDateTime);
-      return _accessToken != null;
-    } catch (e) {
-      lastError = _describe(e);
-      debugPrint('🔐 token refresh failed: $lastError');
-      return false;
-    }
+  String _describe(Object e) {
+    final text = e.toString();
+    return text.length > 300 ? text.substring(0, 300) : text;
   }
 
-  Future<void> _storeTokens(
-      String? access, String? refresh, DateTime? expiry) async {
-    _accessToken = access;
-    _accessTokenExpiry = expiry;
-    if (refresh != null) {
-      await _storage.write(key: 'ms_refresh_token', value: refresh);
-    }
-  }
-
-  /// A valid bearer token, silently refreshed when close to expiry.
+  /// A valid bearer token, refreshed silently by MSAL when needed.
   Future<String?> bearerToken() async {
-    if (_accessToken != null &&
-        _accessTokenExpiry != null &&
-        _accessTokenExpiry!
-            .isAfter(DateTime.now().add(const Duration(minutes: 2)))) {
+    try {
+      final pca = await _client();
+      final result = await pca
+          .acquireTokenSilent(scopes: _scopes)
+          .timeout(const Duration(seconds: 15));
+      _accessToken = result.accessToken;
       return _accessToken;
+    } catch (e) {
+      debugPrint('🔐 silent token failed: $e');
+      return _accessToken; // last known token as a fallback
     }
-    final refreshToken = await _storage.read(key: 'ms_refresh_token');
-    if (refreshToken != null && await _refresh(refreshToken)) {
-      return _accessToken;
-    }
-    return _accessToken;
   }
 
-  /// Fetches identity + groups from the backend. Requires a signed-in user.
-  ///
-  /// The Function App scales to zero, so the first call after idle can take
-  /// several seconds — one retry with generous timeouts covers cold starts
-  /// without ever spinning forever.
+  /// Fetches identity + groups from the backend. One retry with generous
+  /// timeouts covers Function App cold starts.
   Future<Map<String, dynamic>?> fetchMe(Dio dio) async {
-    final token = await bearerToken()
-        .timeout(const Duration(seconds: 10), onTimeout: () => _accessToken);
+    final token = await bearerToken();
     if (token == null) return null;
 
     for (var attempt = 1; attempt <= 2; attempt++) {
@@ -189,7 +145,8 @@ class AuthService {
             .get('/me',
                 options: Options(headers: {'Authorization': 'Bearer $token'}))
             .timeout(const Duration(seconds: 25));
-        debugPrint('🔐 /me attempt $attempt: ${response.statusCode} in ${sw.elapsedMilliseconds}ms');
+        debugPrint(
+            '🔐 /me attempt $attempt: ${response.statusCode} in ${sw.elapsedMilliseconds}ms');
         if (response.statusCode == 200 && response.data is Map) {
           _me = Map<String, dynamic>.from(response.data);
           return _me;
@@ -197,7 +154,10 @@ class AuthService {
         return null;
       } catch (e) {
         debugPrint('🔐 /me attempt $attempt failed: $e');
-        if (attempt == 2) return null;
+        if (attempt == 2) {
+          lastError = _describe(e);
+          return null;
+        }
       }
     }
     return null;
@@ -228,24 +188,16 @@ class AuthService {
 
   Future<void> signOut() async {
     _accessToken = null;
-    _accessTokenExpiry = null;
     _me = null;
-    await _storage.delete(key: 'ms_refresh_token');
+    try {
+      final pca = await _client();
+      await pca.signOut();
+    } catch (e) {
+      debugPrint('🔐 signOut: $e');
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('selected_group_id');
     await prefs.remove('selected_group_name');
-  }
-
-  /// Debug helper: decoded claims of the current token.
-  Map<String, dynamic>? get tokenClaims {
-    final t = _accessToken;
-    if (t == null) return null;
-    try {
-      final payload = t.split('.')[1];
-      final normalized = base64Url.normalize(payload);
-      return jsonDecode(utf8.decode(base64Url.decode(normalized)));
-    } catch (_) {
-      return null;
-    }
+    await prefs.remove('signed_in_upn');
   }
 }

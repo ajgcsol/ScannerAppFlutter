@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../services/firebase_service.dart';
 import '../services/group_session.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../utils/theme.dart';
 import 'home_screen.dart';
 
@@ -19,6 +20,7 @@ class SignInScreen extends StatefulWidget {
 
 class _SignInScreenState extends State<SignInScreen> {
   bool _busy = true;
+  String _version = '';
   String _busyLabel = 'Checking for a saved session…';
   String? _error;
   List<Map<String, dynamic>> _groupsToPick = const [];
@@ -32,6 +34,9 @@ class _SignInScreenState extends State<SignInScreen> {
   @override
   void initState() {
     super.initState();
+    PackageInfo.fromPlatform().then((info) {
+      if (mounted) setState(() => _version = 'v${info.version} (${info.buildNumber})');
+    });
     _tryRestore();
   }
 
@@ -204,6 +209,8 @@ class _SignInScreenState extends State<SignInScreen> {
           onPressed: _enterApp,
           child: const Text('Continue without signing in'),
         ),
+        Text(_version,
+            style: TextStyle(fontSize: 12, color: Colors.grey[500])),
         const SizedBox(height: 12),
       ],
     );

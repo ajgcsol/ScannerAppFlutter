@@ -334,22 +334,6 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
-  flutter_appauth:
-    dependency: "direct main"
-    description:
-      name: flutter_appauth
-      sha256: aba94ecd7aa542240c54c6bb0a875a577c73e9460c199dc74fe58e89e7a98a1a
-      url: "https://pub.dev"
-    source: hosted
-    version: "11.0.0"
-  flutter_appauth_platform_interface:
-    dependency: transitive
-    description:
-      name: flutter_appauth_platform_interface
-      sha256: "6c3c2f3a0060a2bf34880ca75b997b675f148275659c6abe2ff15d0819861259"
-      url: "https://pub.dev"
-    source: hosted
-    version: "11.0.0"
   flutter_barcode_scanner:
     dependency: "direct main"
     description:
@@ -382,54 +366,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.6.1"
-  flutter_secure_storage:
-    dependency: "direct main"
-    description:
-      name: flutter_secure_storage
-      sha256: "7686b1d6a29985dcbb808c59518226e603e3bfa7c0ddfd1a0d00e4cda77c868e"
-      url: "https://pub.dev"
-    source: hosted
-    version: "10.3.1"
-  flutter_secure_storage_darwin:
-    dependency: transitive
-    description:
-      name: flutter_secure_storage_darwin
-      sha256: "82329fa5cdf343773b1b6897dea959105a29f092454259edff92f9f6637e8149"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.3.2"
-  flutter_secure_storage_linux:
-    dependency: transitive
-    description:
-      name: flutter_secure_storage_linux
-      sha256: "76fa9c841b3b1619fc5b5bc36efc7d158fa2356f223b6caeb1d0c80a54168546"
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.0.2"
-  flutter_secure_storage_platform_interface:
-    dependency: transitive
-    description:
-      name: flutter_secure_storage_platform_interface
-      sha256: "788060052712555182aba55ecb5f8b6e5cb9cfe8f776c83249a61fe3ce877db4"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.0.3"
-  flutter_secure_storage_web:
-    dependency: transitive
-    description:
-      name: flutter_secure_storage_web
-      sha256: "073a62b3aeb866ab4ce795f960413948e51e5a42a9b0c8333b6daf5bb3208a1c"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.1.1"
-  flutter_secure_storage_windows:
-    dependency: transitive
-    description:
-      name: flutter_secure_storage_windows
-      sha256: "3b7c8e068875dfd46719ff57c90d8c459c87f2302ed6b00ff006b3c9fcad1613"
-      url: "https://pub.dev"
-    source: hosted
-    version: "4.1.0"
   flutter_test:
     dependency: "direct dev"
     description: flutter
@@ -608,6 +544,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.5.7"
+  msal_auth:
+    dependency: "direct main"
+    description:
+      name: msal_auth
+      sha256: "3e563ef107e9d87a9645b7e21e23b8af50786786762d9f37324057c36c44f5c0"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.3.0"
   nested:
     dependency: transitive
     description:

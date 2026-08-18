@@ -62,9 +62,8 @@ dependencies:
   # Utilities
   uuid: ^4.2.2
   collection: ^1.18.0
-  flutter_appauth: ^11.0.0
-  flutter_secure_storage: ^10.3.1
   shared_preferences: ^2.5.5
+  msal_auth: 3.3.0
 
 dependency_overrides:
   flutter_plugin_android_lifecycle: 2.0.19
@@ -83,4 +82,4 @@ flutter:
   
   assets:
     - assets/images/
-    - assets/icons/
+    - assets/msal_config.json

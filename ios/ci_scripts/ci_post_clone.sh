@@ -1,46 +1,73 @@
-#!/bin/sh
+#!/bin/zsh
 
-# ci_post_clone.sh
-# Xcode Cloud script to set up Flutter environment
-# Version: 2.0 - Optimized for Xcode Cloud
+# Xcode Cloud: prepare a Flutter iOS build.
+#
+# Xcode Cloud runners have Xcode and CocoaPods but no Flutter, and they run
+# xcodebuild directly — never `flutter build`. So everything Flutter would
+# normally do ahead of the Xcode phase has to happen here:
+#   1. install a pinned Flutter SDK
+#   2. resolve packages
+#   3. `--config-only` build, which writes ios/Flutter/Generated.xcconfig
+#      (the dart-defines and Flutter paths xcodebuild reads)
+#   4. pod install
+#
+# Fails loudly: a silent failure here produces an archive with no Flutter
+# engine, which is worse than a red build.
+set -euo pipefail
 
-set -e
+# CocoaPods aborts on a non-UTF-8 locale.
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
 
-echo "🔥 Starting ci_post_clone.sh v2.0..."
+FLUTTER_VERSION="3.35.6"
+REPO="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "$(dirname "$0")/.." && pwd)}"
 
-# Navigate to project root first (we're currently in ios/ci_scripts/)
-echo "🔍 DEBUG: Navigating to project root..."
-cd ../..
-echo "🔍 DEBUG: Now in project root: $(pwd)"
-ls -la
+echo "▸ repo: $REPO"
+cd "$REPO"
 
-# Install Flutter (without sudo for Xcode Cloud) - optimized for speed
-echo "📱 Installing Flutter..."
-git clone https://github.com/flutter/flutter.git -b stable --depth 1 ~/flutter
-export PATH="$PATH:$HOME/flutter/bin"
+echo "▸ installing Flutter $FLUTTER_VERSION"
+git clone --depth 1 --branch "$FLUTTER_VERSION" \
+  https://github.com/flutter/flutter.git "$HOME/flutter"
+export PATH="$HOME/flutter/bin:$PATH"
 
-# Quick Flutter setup - skip full doctor
-echo "📱 Setting up Flutter..."
+# git 2.35+ refuses to operate on a directory owned by another uid.
+git config --global --add safe.directory "$HOME/flutter"
+
 flutter --version
 flutter precache --ios
+flutter pub get
 
-# Install Dart dependencies
-echo "📦 Installing Dart dependencies..."
-flutter pub get || { echo "❌ flutter pub get failed"; exit 1; }
-
-# Install iOS dependencies with CDN fallback
-echo "🍎 Installing iOS dependencies..."
-cd ios
-
-# First try with CDN, then fallback to git repo on failure
-echo "🍎 Attempting pod install with CDN..."
-if ! pod install --repo-update; then
-    echo "⚠️  CDN failed, falling back to git repo..."
-    pod repo remove trunk || true
-    pod repo add trunk https://github.com/CocoaPods/Specs.git --shallow
-    pod install --repo-update
+# The scanner authenticates to the API with a shared key that must not live in
+# source control. Supplied as a secret environment variable on the workflow.
+# Absent key still produces a usable internal-testing build: staff sign in
+# with Microsoft 365, which is the primary auth path. Only the
+# "Continue without signing in" fallback needs the shared key, so warn
+# loudly rather than failing the build.
+if [[ -z "${INSESSION_API_KEY:-}" ]]; then
+  echo "⚠️  INSESSION_API_KEY is not set on this workflow."
+  echo "⚠️  Testers must sign in with Microsoft 365; the"
+  echo "⚠️  'Continue without signing in' path will not reach the backend."
+  echo "⚠️  Add it under App Store Connect ▸ Xcode Cloud ▸ (workflow) ▸"
+  echo "⚠️  Environment ▸ Environment Variables, marked Secret."
 fi
 
-cd ..
+# Xcode Cloud assigns its own build number; feed it to Flutter so the archive
+# carries a unique CFBundleVersion and TestFlight accepts the upload.
+BUILD_NUMBER="${CI_BUILD_NUMBER:-}"
+BUILD_ARGS=(--release --config-only)
+if [[ -n "${INSESSION_API_KEY:-}" ]]; then
+  BUILD_ARGS+=("--dart-define=INSESSION_API_KEY=$INSESSION_API_KEY")
+fi
+if [[ -n "$BUILD_NUMBER" ]]; then
+  echo "▸ build number from Xcode Cloud: $BUILD_NUMBER"
+  BUILD_ARGS+=("--build-number=$BUILD_NUMBER")
+fi
 
-echo "✅ ci_post_clone.sh completed successfully!"
+echo "▸ generating iOS build configuration"
+flutter build ios "${BUILD_ARGS[@]}"
+
+echo "▸ pod install"
+cd "$REPO/ios"
+pod install
+
+echo "✓ ready for xcodebuild"

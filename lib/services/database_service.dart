@@ -274,6 +274,7 @@ class DatabaseService {
         'completedAt': event.completedAt?.millisecondsSinceEpoch,
         'createdBy': event.createdBy,
         'exportFormat': event.exportFormat.toString().split('.').last,
+        'groupId': event.groupId,
       },
       where: 'id = ?',
       whereArgs: [event.id],
@@ -308,8 +309,12 @@ class DatabaseService {
         'isActive': event.isActive ? 1 : 0,
         'isCompleted': event.isCompleted ? 1 : 0,
         'completedAt': event.completedAt?.millisecondsSinceEpoch,
+        // createdAt is NOT NULL: omitting it made every sync through this
+        // path throw, silently falling back to stale cached events.
+        'createdAt': event.createdAt.millisecondsSinceEpoch,
         'createdBy': event.createdBy,
         'exportFormat': event.exportFormat.toString().split('.').last,
+        'groupId': event.groupId,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -502,6 +507,7 @@ class DatabaseService {
         'studentId': scan.studentId,
         'deviceId': scan.deviceId,
         'synced': scan.synced ? 1 : 0,
+        'note': scan.note,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );

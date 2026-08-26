@@ -207,35 +207,49 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     });
   }
 
+  /// The event scanning should start on: the one scheduled for today.
+  ///
+  /// Falls back to the nearest upcoming event, then the most recent past one.
+  /// Never creation order — staff open the app on the day of an event and
+  /// expect that event, not whichever was added last.
+  Event? _defaultEventForToday(List<Event> candidates) {
+    if (candidates.isEmpty) return null;
+
+    final now = DateTime.now();
+    // Event dates are calendar dates stored at midnight UTC, so compare the
+    // UTC components (see Event.shortDate for the same reasoning).
+    bool isToday(Event e) {
+      final d = e.date.toUtc();
+      return d.year == now.year && d.month == now.month && d.day == now.day;
+    }
+
+    final todays = candidates.where(isToday).toList();
+    if (todays.isNotEmpty) {
+      debugPrint('📱 Default event: today\'s "${todays.first.name}"');
+      return todays.first;
+    }
+
+    final sorted = List<Event>.from(candidates)
+      ..sort((a, b) => a.date.compareTo(b.date));
+    final startOfToday = DateTime.utc(now.year, now.month, now.day);
+    final upcoming = sorted.where((e) => e.date.toUtc().isAfter(startOfToday));
+    if (upcoming.isNotEmpty) {
+      debugPrint('📱 Default event: next upcoming "${upcoming.first.name}"');
+      return upcoming.first;
+    }
+
+    debugPrint('📱 Default event: most recent "${sorted.last.name}"');
+    return sorted.last;
+  }
+
   Future<void> loadEvents() async {
     debugPrint('📱 loadEvents() called');
     final events = await _scannerService.getEvents();
     debugPrint('📱 Loaded ${events.length} events');
     if (events.isNotEmpty) {
-      // Prefer active events, but prioritize real Firebase events over sample events
-      final activeEvents = events.where((e) => e.isActive == true).toList();
-      
-      Event selectedEvent;
-      if (activeEvents.isNotEmpty) {
-        // Filter out sample/test events and prefer real Firebase events
-        final realActiveEvents = activeEvents.where((e) {
-          final name = e.name.toLowerCase();
-          final id = e.id.toLowerCase();
-          return !name.contains('sample') && 
-                 !name.contains('test') &&
-                 !name.contains('demo') &&
-                 !id.startsWith('event_') &&
-                 !id.contains('sample') &&
-                 !id.contains('test');
-        }).toList();
-        
-        selectedEvent = realActiveEvents.isNotEmpty ? realActiveEvents.first : activeEvents.first;
-      } else {
-        selectedEvent = events.first;
-      }
-      
-      debugPrint('📱 Setting current event to: ${selectedEvent.name} (id: ${selectedEvent.id}, active: ${selectedEvent.isActive})');
-      
+      // Default selection is decided by date below (_defaultEventForToday);
+      // creation order is deliberately not consulted.
+
       // Filter available events to show only real active events by default (hide sample/test/inactive events)
       final filteredEvents = events.where((e) {
         final name = e.name.toLowerCase();
@@ -269,12 +283,20 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         allForSelector = events.where((e) => e.groupId == null).toList();
       }
 
-      // Keep the current selection only if it's still visible in this mode.
-      Event? effectiveCurrent = selectedEvent;
-      final currentId = effectiveCurrent?.id;
-      if (currentId != null && !allForSelector.any((e) => e.id == currentId)) {
-        effectiveCurrent = eventsToShow.isNotEmpty ? eventsToShow.first : null;
+      // A staff member's explicit choice always wins: reloading events must
+      // never silently retarget scanning. (This is what misfiled 177 forgot-ID
+      // scans onto a November event — the reload replaced the selected event
+      // with whatever the API happened to return first.)
+      final chosenId = state.currentEvent?.id;
+      Event? effectiveCurrent;
+      if (chosenId != null) {
+        // Re-read the chosen event from the fresh list so edits show up, but
+        // keep the selection itself.
+        for (final e in allForSelector) {
+          if (e.id == chosenId) { effectiveCurrent = e; break; }
+        }
       }
+      effectiveCurrent ??= _defaultEventForToday(eventsToShow);
 
       state = state.copyWith(
         availableEvents: eventsToShow,

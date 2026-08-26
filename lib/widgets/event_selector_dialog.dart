@@ -224,17 +224,25 @@ class _EventSelectorDialogState extends State<EventSelectorDialog> {
                           ),
                           child: ListTile(
                             leading: CircleAvatar(
-                              backgroundColor: event.isActive 
+                              backgroundColor: event.isActive
                                 ? (event.isCompleted ? Colors.grey : Theme.of(context).colorScheme.primary)
                                 : Colors.orange,
-                              child: Text(
-                                event.eventNumber.toString(),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                              // Department scan lists carry an auto-assigned
+                              // 7-digit number that means nothing to staff and
+                              // wrapped across two lines in the circle — show a
+                              // list icon instead. SONIS event numbers (3 digits)
+                              // stay visible because staff reference them.
+                              child: event.groupId != null
+                                  ? const Icon(Icons.qr_code_2,
+                                      color: Colors.white, size: 20)
+                                  : Text(
+                                      event.eventNumber.toString(),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
                             ),
                             title: Text(
                               event.name,
@@ -243,7 +251,8 @@ class _EventSelectorDialogState extends State<EventSelectorDialog> {
                             subtitle: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Event #${event.eventNumber}'),
+                                if (event.groupId == null)
+                                  Text('Event #${event.eventNumber}'),
                                 Text(
                                   event.shortDate,
                                   style: const TextStyle(fontSize: 12),

@@ -11,7 +11,7 @@ import '../models/error_record.dart' as error_model;
 class DatabaseService {
   static Database? _database;
   static const String _databaseName = 'insession.db';
-  static const int _databaseVersion = 5; // v5: event groupId + scan notes
+  static const int _databaseVersion = 6; // v6: flush events poisoned by the groupId sync bug
 
   // Table names
   static const String _eventsTable = 'events';
@@ -138,6 +138,14 @@ class DatabaseService {
       // v5: department scan lists (event ownership) + per-scan notes.
       await db.execute('ALTER TABLE $_eventsTable ADD COLUMN groupId TEXT');
       await db.execute('ALTER TABLE $_scansTable ADD COLUMN note TEXT');
+    }
+    if (oldVersion < 6) {
+      // v6: every cached event was written with groupId NULL (the sync insert
+      // omitted the column), which made department scan lists look
+      // school-wide — so Student Affairs saw Admissions lists, and Admissions
+      // saw none of its own. Drop the cache; it re-syncs on launch with
+      // correct ownership.
+      await db.delete(_eventsTable);
     }
   }
 
